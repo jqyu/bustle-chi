@@ -1,0 +1,79 @@
+name:                chi
+version:             0.1.0.0
+synopsis:            Initial project template from stack
+description:         Please see README.md
+homepage:            https://github.com/jqyu/chi#readme
+license:             BSD3
+license-file:        LICENSE
+author:              James Yu
+maintainer:          james.yu@bustle.com
+copyright:           2016 James Yu
+category:            Web
+build-type:          Simple
+-- extra-source-files:
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Bustle.Env
+                     , Bustle.QL
+                     , Bustle.QL.Schema
+                     , Rad.Redis.DataSource
+                     , Rad.QL
+                     , Rad.QL.AST
+                     , Rad.QL.Error
+                     , Rad.QL.Execute
+                     , Rad.QL.Parser
+                     , Rad.QL.Resolver.Arguments
+                     , Rad.QL.Resolver.Introspection
+                     , Rad.QL.Resolver.Object
+                     , Rad.QL.Resolver.Schema
+                     , Rad.QL.Resolver.Types
+  build-depends:       base >= 4.7 && < 5
+                     , aeson
+                     , async
+                     , attoparsec
+                     , bytestring
+                     , bytestring-trie
+                     , containers
+                     , hashable
+                     , haxl
+                     , hedis
+                     , mtl
+                     , text
+                     , transformers
+                     , word8
+  default-language:    Haskell2010
+
+executable chi-exe
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  ghc-options:         -threaded -O2 -rtsopts -with-rtsopts=-N
+  build-depends:       base
+                     , aeson
+                     , bytestring
+                     , chi
+                     , haxl
+                     , scotty
+                     , text
+                     , transformers
+                     , wai
+                     , wai-extra
+  default-language:    Haskell2010
+
+test-suite chi-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Spec.hs
+  build-depends:       base
+                     , chi
+                     , hspec
+                     , hspec-wai
+                     , hspec-wai-json
+                     , aeson
+  ghc-options:         -threaded -O2 -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/jqyu/chi

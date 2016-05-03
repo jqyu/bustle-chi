@@ -1,0 +1,64 @@
+class (Typeable a) => IsNode a where
+  id :: a -> Id
+
+data Node = forall a. (IsNode a) => Node a
+
+data IdRepeatArgs = IdRepeatArgs { num :: Int } deriving (Generic)
+instance GraphQLArgs IdRepeatArgs
+
+instance GraphQLInterface Haxl Foo where
+  interfaceDefinition = defineInterface
+    [ "id"
+      |.. "Unique identifying ID"
+      $-> id
+    , "idRepeat"
+      |.. "Repeat the ID some number of times"
+      $~> \v args ->
+        repeat (num args)
+    ]
+
+class (IsNode a) => IsClip a
+
+data Clip = forall a. (IsClip a) => Clip a
+
+instance GraphQLInterface Clip
+
+data Foo = Foo
+
+instance GraphQLObject Haxl Foo where
+  objectDefinition = defineObject
+    [ implements Node, implements Clip ]
+    [ "test"
+      |.. "some test string"
+      $~> getTest
+
+    , "next"
+      |.. "next foo, as a haxl"
+      $->> \v -> do
+        p1 <- action1 v
+        p2 <- action2 p1
+        finish p2
+    ]
+instance GraphQLValue Haxl Foo
+
+data Bar = Bar
+
+instance GraphQLObject Haxl Bar
+
+data Baz = Baz
+  { foo :: Int
+  , bar :: Int
+  } deriving (Generic)
+
+instance GraphQLNamed Baz where
+  docs _ = "Baz"
+    |.. "yes hello this is a baz"
+    |.. "yes hello yes hello yas hallo"
+instance (Monad m) => GraphQLObject' m Baz
+instance (Monad m) => GraphQLObject m Baz where
+  objectDefinition = objectDefinition'
+    [ "foo"
+      |.. "my foo description"
+    , "bar"
+      |.. "my bar description"
+    ]
