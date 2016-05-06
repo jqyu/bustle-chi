@@ -5,6 +5,8 @@
 module Rad.QL.AST where
 
 import Data.ByteString (ByteString)
+import Data.ByteString.Builder
+import Data.Monoid ((<>))
 import Data.String (IsString(fromString))
 
 type Name        = ByteString
@@ -121,15 +123,6 @@ data TypeDef = TypeDefObject      ObjectTypeDef
              | TypeDefInputObject InputObjectTypeDef
              deriving (Show)
 
--- because I don't really understand lenses yet
-typeDefName :: TypeDef -> Name
-typeDefName (TypeDefInterface   (InterfaceTypeDef   n _ _  )) = n
-typeDefName (TypeDefUnion       (UnionTypeDef       n _ _  )) = n
-typeDefName (TypeDefObject      (ObjectTypeDef      n _ _ _)) = n
-typeDefName (TypeDefScalar      (ScalarTypeDef      n _    )) = n
-typeDefName (TypeDefEnum        (EnumTypeDef        n _ _  )) = n
-typeDefName (TypeDefInputObject (InputObjectTypeDef n _ _  )) = n
-
 instance Eq TypeDef where
   t == t' = typeDefName t == typeDefName t'
 
@@ -140,13 +133,19 @@ data ObjectTypeDef = ObjectTypeDef Name Description Interfaces [FieldDef]
 type Interfaces = [InterfaceTypeDef]
 
 -- RadQL Field Defs store a TypeDef reference for resolving type directories
-data FieldDef = FieldDef Name Description ArgumentsDef Type TypeDef
+data FieldDef = FieldDef Name Description Description ArgumentsDef Type TypeDef
               deriving (Eq, Show)
 
 type ArgumentsDef = [InputValueDef]
 
-data InputValueDef = InputValueDef Name Description Type TypeDef (Maybe DefaultValue)
-                   deriving (Eq, Show)
+data InputValueDef = InputValueDef Name Description Type TypeDef (Maybe Builder)
+
+instance Eq InputValueDef where
+  (InputValueDef a b c d _) == (InputValueDef a' b' c' d' _) =
+    a == a' && b == b' && c == c' && d == d'
+
+instance Show InputValueDef where
+  show (InputValueDef a b c d _) = "(InputValueDef " <> show a <> show b <> show c <> show d <> ")"
 
 data InterfaceTypeDef = InterfaceTypeDef Name Description [FieldDef]
                       deriving (Eq, Show)
@@ -165,3 +164,22 @@ data EnumValueDef = EnumValueDef Name Description
 
 data InputObjectTypeDef = InputObjectTypeDef Name Description [InputValueDef]
                         deriving (Eq, Show)
+
+-- convenience methods
+-- this could be done with lenses but fuck you too buddy
+
+typeDefName :: TypeDef -> Name
+typeDefName (TypeDefObject      (ObjectTypeDef      n _ _ _)) = n
+typeDefName (TypeDefInterface   (InterfaceTypeDef   n _ _  )) = n
+typeDefName (TypeDefUnion       (UnionTypeDef       n _ _  )) = n
+typeDefName (TypeDefScalar      (ScalarTypeDef      n _    )) = n
+typeDefName (TypeDefEnum        (EnumTypeDef        n _ _  )) = n
+typeDefName (TypeDefInputObject (InputObjectTypeDef n _ _  )) = n
+
+typeDefDesc :: TypeDef -> Description
+typeDefDesc (TypeDefObject      (ObjectTypeDef      _ d _ _)) = d
+typeDefDesc (TypeDefInterface   (InterfaceTypeDef   _ d _  )) = d
+typeDefDesc (TypeDefUnion       (UnionTypeDef       _ d _  )) = d
+typeDefDesc (TypeDefScalar      (ScalarTypeDef      _ d    )) = d
+typeDefDesc (TypeDefEnum        (EnumTypeDef        _ d _  )) = d
+typeDefDesc (TypeDefInputObject (InputObjectTypeDef _ d _  )) = d

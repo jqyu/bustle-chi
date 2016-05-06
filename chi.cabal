@@ -16,7 +16,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Bustle.Env
-                     , Bustle.QL
+                     , Bustle.DataSource.Post
                      , Bustle.QL.Schema
                      , Rad.Redis.DataSource
                      , Rad.QL
@@ -24,11 +24,6 @@ library
                      , Rad.QL.Error
                      , Rad.QL.Execute
                      , Rad.QL.Parser
-                     , Rad.QL.Resolver.Arguments
-                     , Rad.QL.Resolver.Introspection
-                     , Rad.QL.Resolver.Object
-                     , Rad.QL.Resolver.Schema
-                     , Rad.QL.Resolver.Types
   build-depends:       base >= 4.7 && < 5
                      , aeson
                      , async

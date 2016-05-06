@@ -13,7 +13,8 @@ import           Haxl.Core
 import qualified Network.Wai.Middleware.RequestLogger as Logger
 import qualified Web.Scotty as S
 
-import qualified Bustle.QL as Bustle
+import Bustle.Env
+import Bustle.QL.Schema
 
 
 data Payload = Payload
@@ -34,13 +35,13 @@ app = do
 
   -- GraphQL Response
   S.post "/" $ do
-    b <- S.jsonData :: S.ActionM Payload
-    e <- liftIO $ Bustle.initBustleEnv Bustle.Development
-    r <- liftIO $
-      runHaxl e $
-        Bustle.run (TE.encodeUtf8 $ query b) (fromMaybe Null $ variables b)
+    -- b <- S.jsonData :: S.ActionM Payload
+    -- e <- liftIO $ Bustle.initBustleEnv Bustle.Development
+    -- r <- liftIO $
+    --   runHaxl e $
+    --     Bustle.run (TE.encodeUtf8 $ query b) (fromMaybe Null $ variables b)
     S.setHeader "Content-Type" "application/json; charset=utf-8"
-    S.raw r
+    S.raw "ok"
 
 main :: IO ()
 main = S.scotty 3000 app

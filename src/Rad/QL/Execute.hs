@@ -1,8 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Rad.QL.Execute
-  ( execute
-  , subst
+  ( subst
   ) where
 
 -- import           Control.Arrow (first)
@@ -15,14 +14,13 @@ import qualified Data.Trie               as Trie
 
 import Rad.QL.AST
 import Rad.QL.Error
-import Rad.QL.Resolver.Schema
 
-execute :: (Monad m) => Schema m -> OperationDef -> CollectErrs m Builder
-execute (Schema _ rq _) (Query    (Node _ _ _ ss)) = rq ss
+-- execute :: (Monad m) => Schema m -> OperationDef -> CollectErrs m Builder
+-- execute (Schema _ rq _) (Query    (Node _ _ _ ss)) = rq ss
     -- concatShit b = b
     --             <> byteString ", \"query\": "
     --             <> buildString (BC8.pack $ show op)
-execute (Schema _ _ rm) (Mutation (Node _ _ _ ss)) = rm ss
+-- execute (Schema _ _ rm) (Mutation (Node _ _ _ ss)) = rm ss
 
 subst :: JSON.Value -> Document -> Either String OperationDef
 subst vars (Document defs) =

@@ -1,0 +1,180 @@
+class GraphQLValue m a where
+
+  def :: S.SchemaDefM m a Kind
+
+  typeDef :: m a -> TypeDef
+  typeDef = typeDef'
+    where d = def :: S.SchemaDef m a
+
+  resolve :: SelectionSet -> a -> m Result
+  resolve = resolve'
+    where d = def :: S.SchemaDef m a
+
+module Bustle.QL.Types.Node where
+
+  class (Typeable a) => IsNode a where
+    id :: a -> Id
+
+  data Node = forall a. (IsNode a) => Node a
+
+  instance GraphQLValue Haxl Node where
+
+    def = S.interfaceDef "Node" $ do
+
+      S.desc "Yes hello.."
+        |.. "this description can span multiple lines"
+        |.. "if that's what you're about"
+
+      S.field "id" $ do
+        S.desc "like ok..."
+        S.resolve $~> \case Node a ->
+          id a
+
+      S.field "bar" $ do
+        S.depr "deprecation reason!"
+        S.desc "yes ok..."
+        S.arg "simple"
+        S.arg "cursor" >> do
+          S.description "yes ok..."
+                |.. "like ok"
+          S.defaultValue 0
+        S.arg "deprecatedArgument"
+          <> S.depr "deprecation reason"
+                |.. "because n0b0dy l0ves u"
+          <> S.desc "this argument is deprecated"
+                |.. "just because I can"
+          <> S.defaultValue 1000
+        S.resolve $~> \v args ->
+          repeat (num args) $ id args
+
+      S.field "baz" @> do
+        S.desc "some other fuckin thing"
+        S.resolve $-> \v args ->
+          v |> outE Has
+            |> limit 10
+            |> after (cursor args)
+
+      field "myField" $ do
+
+        describe "This is the description of my field"
+
+        deprecate "This field is now deprecated"
+          |.. "deprecation doesn't need a good reason, just determination"
+
+        require $ role Editor <?> "rejection message"
+
+        require $ someOtherCondition
+              <|> alternateCondition
+              <|> lastCheckCondition
+              <?> "rejection message"
+
+        a <- arg "a" >> do
+          describe "my description"
+          validate "My error message" $ \v -> doSomethingTo v
+          defaultV 10
+        b <- arg "b" :: Arg Int
+        c <- arg "c" :: Arg (Maybe ByteString)
+
+        v <- ctx
+
+        case fn a b c v of
+             Just a  -> resolve a
+             Nothing -> reject "My error message"
+
+  createNode :: GraphQLMutation Haxl Something
+  createNode = defineMutation "createNode" $ do
+
+    require $ role Editor
+          <|> role Writer
+          <?> "Rejection message"
+
+    describe "My description"
+      |.. "some other thing..."
+
+    deprecate "This field is deprecated"
+      |.. "with some intricate deprecation reason"
+
+    d <- arg "myOtherArg" required :: Arg (Maybe Something)
+    e <- arg "myOtherArg" optional :: Arg (Maybe Something)
+
+    a <- arg "myFirstArg" $ do
+      describe "Here is my argument description"
+      withDefault 0
+
+    b <- arg "mySecondArg" $ do
+      deprecate "my deprecation reason"
+      withDefault True
+
+    c <- arg "myOtherArg" $ do
+      withDefault "yes also a hello"
+
+    resolve $~> \ctx args -> Something
+      { a = ctx
+      , b = b args
+      , c = c args
+      }
+
+module Bustle.QL.Types.Foo where
+
+  data Cust = SOMETHING
+            | OTHERTHING
+            | THIRDTHING
+            deriving ...
+
+  instance GraphQLValue Haxl Cust where
+    def = defineEnum "Cust" @> do
+      S.enumDef "SOMETHING" @>
+        S.desc "description for this one"
+          |.. "this description wraps across multiple lines tho"
+      S.enumDef "OTHERTHING"
+      S.enumDef "THIRDTHING"
+
+  data Foo = Foo { f1 :: Bool, f2 :: Int, f3 :: Cust } deriving (Eq, Show, Typeable, Generic)
+  instance IsNode Foo where id _ = Id "f0ck"
+
+  instance GraphQLValue Haxl Foo where
+
+    def = defineObject "Foo" @> do
+
+      describe "Yes hello"
+        |.. "You can add some shit here and it'll do the stuff"
+        |.. "blah blah blah blah blah..."
+
+      -- interface implementations
+      implements Node
+      implements MyOther
+
+      -- fields
+      field "bar" $ do
+        describe "Overrides the default bar implementation"
+
+        num <- arg "num" >> do
+          describe "number of times to repeat the argument"
+            |.. "This can be a lot of times..."
+          validate "blah blah blah blah blah" $ \case
+            Just n  -> True
+            Nothing -> False
+          validate "arg `num` must be positive" isPositive
+
+        resolve $~>> \v args ->
+          repeat (num args) <$> Id "f0ck"
+
+      field "something" $ do
+        describe "Some other field that does some other thing"
+        resolve $~> \v args ->
+
+module Bustle.QL.Types.Id where
+
+  newtype Id = Id ByteString
+
+  instance GraphQLScalar Haxl Id where
+    fromValue = ...
+    toBuilder = ...
+
+  instance GraphQLValue Haxl Id where
+    def = defineScalar "Id" <<
+      S.fromValue $ \case
+        ValueString n -> Just $ Id n
+        _             -> Nothing
+      S.desc "Some description"
+

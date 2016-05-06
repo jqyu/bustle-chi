@@ -1,68 +1,40 @@
-{-# LANGUAGE DeriveGeneric,
-             OverloadedStrings #-}
+{-# LANGUAGE FlexibleInstances
+           , MultiParamTypeClasses
+           , TypeSynonymInstances
+           , OverloadedStrings #-}
 
-module Bustle.QL.Schema
-  ( schema
-  ) where
+module Bustle.QL.Schema where
 
-import GHC.Generics
-import Rad.QL
+import Haxl.Core
 
 import Bustle.Env
-import Bustle.QL.Crap
-import Bustle.QL.Test.Foo (fooDef, getFooQL)
+import Rad.QL
 
-schema :: Schema Haxl
-schema = defineSchema
-  -- root query resolver
-  [ "myOtherTest"
-    |.. "Returns my other test"
-    *-> myOtherTest
+data RootQueryType = RootQueryType deriving (Eq, Show)
 
-  , "myTest"
-    |.. "This is my fun test"
-    *~> myTest
+instance GraphQLValue Haxl RootQueryType
+instance GraphQLType OBJECT Haxl RootQueryType where
 
-  , "bop"
-    |.. "Arbitrary argument test"
-    *-> bop
+  def = defineObject "RootQueryType" $ do
 
-  , "red"
-    |.. "Construct a red node"
-    *-> red
+    describe "Root query type or graph.bustle.com"
+      |.. "Contains a field for each domain"
 
-  , "testt"
-    |.. "my fun test"
-    *~>> testing
+    -- introspection schema
 
-  , "black"
-    |.. "Construct a black node"
-    *-> black
+    field "bustle" $ do
+      describe ""
+      resolve *~> (1 :: Int)
 
-  , "foo"
-    |.. "Retrieve foo from in-memory store by index"
-    *-> getFooQL
-  ]
-  -- TODO: root mutation resolver
-  []
-  -- types
-  [ typeObject redDef
-  , typeObject blackDef
-  , typeObject fooDef
-  ]
+    field "max" $ do
+      describe ""
+      resolve *~> (2 :: Int)
 
-data BopArgs = BopArgs
-  { baw :: Int
-  , awp :: Int
-  } deriving (Generic)
+    field "api" $ do
+      deprecate "use the `max` field"
+      describe "Mappings to the original api.bustle.com Grape app"
+      resolve *~> (3 :: Int)
 
-instance GraphQLArgs BopArgs
-
-bop :: BopArgs -> Int
-bop a = baw a + awp a
-
-testing :: Haxl Int
-testing = return 5
-
--- DUMMY TYPES
+-- schema :: Schema Haxl RootQueryType
+-- schema = defineSchema RootQueryType $ concat
 
