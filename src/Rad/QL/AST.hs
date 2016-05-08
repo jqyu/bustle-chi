@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
 -- Full credit to https://github.com/jdnavarro/graphql-haskell
 -- Only had to make some really minor tweaks
 
@@ -12,6 +11,7 @@ import Data.String (IsString(fromString))
 type Name        = ByteString
 type Alias       = ByteString
 type Description = ByteString
+type Deprecation = ByteString
 
 -- * Document
 
@@ -40,23 +40,13 @@ instance IsString Variable where
 
 type SelectionSet = [Selection]
 
-data Selection = SelectionField Field
+data Selection = SelectionField          Field
                | SelectionFragmentSpread FragmentSpread
                | SelectionInlineFragment InlineFragment
                deriving (Eq, Show)
 
 data Field = Field Alias Name [Argument] [Directive] SelectionSet
-           deriving (Show)
-
--- create an Ord instance to allow sorting and deduping
-instance Eq Field where
-  (Field a n _ _ _) == (Field a' n' _ _ _) = fKey a n == fKey a' n'
-instance Ord Field where
-  (Field a n _ _ _) <= (Field a' n' _ _ _) = fKey a n <= fKey a' n'
-
-fKey :: ByteString -> ByteString -> ByteString
-fKey "" n = n
-fKey a  _ = a
+           deriving (Eq, Show)
 
 data Argument = Argument Name Value deriving (Eq, Show)
 
@@ -133,7 +123,7 @@ data ObjectTypeDef = ObjectTypeDef Name Description Interfaces [FieldDef]
 type Interfaces = [InterfaceTypeDef]
 
 -- RadQL Field Defs store a TypeDef reference for resolving type directories
-data FieldDef = FieldDef Name Description Description ArgumentsDef Type TypeDef
+data FieldDef = FieldDef Name Description ArgumentsDef Type TypeDef Deprecation
               deriving (Eq, Show)
 
 type ArgumentsDef = [InputValueDef]
@@ -159,7 +149,7 @@ data ScalarTypeDef = ScalarTypeDef Name Description
 data EnumTypeDef = EnumTypeDef Name Description [EnumValueDef]
                  deriving (Eq, Show)
 
-data EnumValueDef = EnumValueDef Name Description
+data EnumValueDef = EnumValueDef Name Description Deprecation
                   deriving (Eq, Show)
 
 data InputObjectTypeDef = InputObjectTypeDef Name Description [InputValueDef]
@@ -167,6 +157,12 @@ data InputObjectTypeDef = InputObjectTypeDef Name Description [InputValueDef]
 
 -- convenience methods
 -- this could be done with lenses but fuck you too buddy
+
+typeRefName :: Type -> Name
+typeRefName (TypeNamed   (NamedType        n            )) = n
+typeRefName (TypeList    (ListType         t            )) = typeRefName t
+typeRefName (TypeNonNull (NonNullTypeList  (ListType  t))) = typeRefName t
+typeRefName (TypeNonNull (NonNullTypeNamed (NamedType n))) = n
 
 typeDefName :: TypeDef -> Name
 typeDefName (TypeDefObject      (ObjectTypeDef      n _ _ _)) = n

@@ -17,13 +17,38 @@ library
   hs-source-dirs:      src
   exposed-modules:     Bustle.Env
                      , Bustle.DataSource.Post
+                     , Bustle.QL
+                     , Bustle.QL.API.Bustle
+                     , Bustle.QL.Interfaces
+                     , Bustle.QL.Scalars
                      , Bustle.QL.Schema
                      , Rad.Redis.DataSource
                      , Rad.QL
                      , Rad.QL.AST
-                     , Rad.QL.Error
-                     , Rad.QL.Execute
+                     , Rad.QL.Define
+                     , Rad.QL.Define.Enum
+                     , Rad.QL.Define.Field
+                     , Rad.QL.Define.Interface
+                     , Rad.QL.Define.Introspection
+                     , Rad.QL.Define.Object
+                     , Rad.QL.Define.Scalar
+                     , Rad.QL.Define.Schema
+                     , Rad.QL.Define.Union
+                     , Rad.QL.Define.Util
                      , Rad.QL.Parser
+                     , Rad.QL.Query
+                     , Rad.QL.Types
+                     , Rad.QL.Internal.Builders
+                     , Rad.QL.Internal.GEnum
+                     , Rad.QL.Internal.GUnion
+                     , Rad.QL.Internal.Types
+  extensions:          DeriveGeneric
+                     , ExistentialQuantification
+                     , FlexibleContexts
+                     , FlexibleInstances
+                     , MultiParamTypeClasses
+                     , TypeSynonymInstances
+                     , OverloadedStrings
   build-depends:       base >= 4.7 && < 5
                      , aeson
                      , async
@@ -35,8 +60,10 @@ library
                      , haxl
                      , hedis
                      , mtl
+                     , scientific
                      , text
                      , transformers
+                     , unordered-containers
                      , word8
   default-language:    Haskell2010
 

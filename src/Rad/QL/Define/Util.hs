@@ -1,12 +1,12 @@
-{-# LANGUAGE FlexibleInstances
-           , MultiParamTypeClasses
-           , OverloadedStrings #-}
-
 module Rad.QL.Define.Util where
 
 import Data.Monoid ((<>))
 
+import Rad.QL.Internal.Builders
+import Rad.QL.Internal.Types
+
 import Rad.QL.AST
+import Rad.QL.Types
 
 -- Basic definition monad, allows us to use do notation to build schemas
 -- This is really a monoidal over the kind (independent of the type)
@@ -31,25 +31,32 @@ seqDef = merge
 
 -- The describeable class, allows use to use the `describe` method to append a description
 
-class (Monad m) => Describeable m where
+class (Monad m) => Describable m where
   describe :: Description -> m ()
 
-infixl 9 |..
-(|..) :: (Describeable m) => m () -> Description -> m ()
-a |.. d = a >> describe d
+infixr 8 $..
+($..) :: (Description -> a) -> Description -> a
+($..) = ($)
+
+infixr 9 |.., |--
+(|..) :: Description -> Description -> Description
+d1 |.. d2 = d1 <> "\n" <> d2
+(|--) :: Description -> Description -> Description
+d1 |-- d2 = d1 <> "\n\n" <> d2
 
 -- The deprecateable class, allows use of the `deprecate` method to append a description
 
-class (Monad m) => Deprecateable m where
-  deprecate :: Description -> m ()
+class (Monad m) => Deprecatable m where
+  deprecate :: Deprecation -> m ()
 
--- useful placeholders for constructing builders
+-- undefined object, useful for stubbing out methods
 
-undefinedTypeDef :: TypeDef
-undefinedTypeDef = TypeDefScalar $ ScalarTypeDef "UndefinedType"
-   $ "Type which denotes an undefined value, "
-  <> "if you see this in your schema then one of your fields is missing an implementation"
-  <> "TODO: raise a warning automatically if this appears"
+data UNDEFINED = UNDEFINED
 
-undefinedTypeRef :: Type
-undefinedTypeRef = TypeNamed $ NamedType "UndefinedType"
+instance GraphQLScalar UNDEFINED where
+  serialize _ = buildString "UNDEFINED"
+  deserialize _ = Nothing
+
+instance (Monad m) => GraphQLValue m UNDEFINED
+instance (Monad m) => GraphQLType SCALAR m UNDEFINED where
+  def = emptyDef

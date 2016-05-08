@@ -1,106 +1,116 @@
-{-# LANGUAGE FlexibleContexts
-           , FlexibleInstances
-           , MultiParamTypeClasses
-           , OverloadedStrings
-           , ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables #-} 
 
-module Rad.QL.Define.Object where
+module Rad.QL.Define.Object
+  ( defineObject
+  , implements
+  , ObjectDefM(..)
+  ) where
 
-import Data.Monoid ((<>))
+import           Control.Arrow (first)
+import           Data.Maybe (fromMaybe)
+import           Data.Monoid ((<>))
+import qualified Data.HashSet as HashSet
+import qualified Data.Trie    as Trie
+
+import Rad.QL.Internal.Builders
+import Rad.QL.Internal.Types
+
+import Rad.QL.Define.Field
+import Rad.QL.Define.Util
 
 import Rad.QL.AST
-import Rad.QL.Define.Util
-import Rad.QL.Define.Field
-import Rad.QL.Internal.Types
+import Rad.QL.Query
 import Rad.QL.Types
 
-defineObject :: Name -> ObjectDefM m a b -> GraphQLTypeDef OBJECT m a
-defineObject n def = GraphQLTypeDef { gqlTypeDef = td
-                                    , gqlResolve = res
-                                    }
-  where td = TypeDefObject $ ObjectTypeDef n "" [] []
-        res = undefined
+defineObject :: (Monad m) => Name -> ObjectDefM m a b -> GraphQLTypeDef OBJECT m a
+defineObject n def = emptyDef
+    { gqlTypeDef = TypeDefObject td
+    , gqlResolve = res
+    , gqlFields  = odFields def
+    }
+  where td  = ObjectTypeDef n (odDesc def) (odInterfaces def) fds
+        fds = [ fieldDef f | f <- odFields def ]
+        frs = Trie.fromList
+                [ (fieldResolverName f, fieldResolver f)
+                | f <- odFields def
+                ]
+        res = objectResolver td
+            -- insert special __typename resolver
+            $ Trie.insert "__typename" (resolveTypeName n) frs
 
-implements :: (GraphQLType INTERFACE m b) => (a -> b) -> ObjectDefM m a ()
-implements = undefined
+objectResolver :: (Monad m)
+               => ObjectTypeDef                   -- given an object definition (for type checking)
+               -> Trie.Trie (FieldRunner m a)     -- and a trie of resolvers
+               -> QSelectionSet -> a -> Result m  -- return a value resolver
+objectResolver odef fdefs ss x = joinObject <$> traverse fval fields
+  where fval (QField a n args ss') =
+          alias a n <$> maybe (fieldNotDefined n)
+                              (\r -> r args x ss')
+                              (Trie.lookup n fdefs)
+        fields = fst $ collapse HashSet.empty ss
+        collapse visited [] = ([], visited)
+        collapse visited (QSelectionField  f        : sels)
+            | HashSet.member key visited = collapse                     visited  sels
+            | otherwise    = first (f :) $ collapse (HashSet.insert key visited) sels
+          where key = fieldKey f
+        collapse visited (QSelectionSpread cond ss' : sels)
+            | cond odef = let (fs, v') = collapse visited ss' in first (fs <>) $ collapse v' sels
+            | otherwise = collapse visited sels
 
--- example:
+fieldResolverName :: GraphQLFieldDef m a -> Name
+fieldResolverName = fieldDefName . fieldDef
 
-data Bar = Bar Int
+fieldDefName :: FieldDef -> Name
+fieldDefName (FieldDef n _ _ _ _ _) = n
 
-instance (Monad m) => GraphQLValue m Bar
-instance (Monad m) => GraphQLType OBJECT m Bar where
+fieldNotDefined :: (Monad m) => Name -> Result m
+fieldNotDefined n = errorMsg $ "Field \"" <> n <> "\" is not defined"
 
-  def = defineObject "Bar" $ do
+fieldKey :: QField -> Name
+fieldKey (QField "" n _ _) = n
+fieldKey (QField a  _ _ _) = a
 
-    describe "some filler type"
+alias :: Alias -> Name -> Builder -> Builder
+alias a n b = buildString k <> charUtf8 ':' <> b
+  where k | a == ""   = n
+          | otherwise = a
 
-    field "bar" $ do
-      describe "a horse walks into one"
-      resolve $-> \_ _ ->
-        Foo 1 2
-
-
-data Foo = Foo Int Int
-
-instance (Monad m) => GraphQLValue m Foo
-instance (Monad m) => GraphQLType OBJECT m Foo where
-
-  def = defineObject "Foo" $ do
-
-    describe "This is a code sample showing how to use the object definition monad"
-      |.. "Here we demonstrate a describe call with multiple fields."
-      |.. "Because this is a (trivial) monad, we can use do notation to easily chain"
-      |.. "in a way that's much cleaner than your traditional JS/Java builder pattern"
-
-    describe "In the future we this will be used to annotate types with middlewares"
-      |.. "and property annotations which can be used to automatically generate tests"
-
-    field "myFoo" $ do
-      describe "description of myFoo"
-      limit  <- arg "limit" |= 30
-        @> describe "Number of elements to fetch"
-              |.. "i love playing with syntax"
-              |.. "it tickles my private parts"
-        @> validate positiveInt
-      cursor <- arg "cursor" |= "0"
-        @> describe "last element cursor"
-        :: Arg m Foo Name
-      includeDepr <- arg "includeDeprecated" |= False
-      resolve $-> \_ _ ->
-        Bar 1
-
-positiveInt :: Int -> Validation
-positiveInt x | x > 0     = OK
-              | otherwise = ERR "int is non-positive"
+implements :: forall m a b. (GraphQLType INTERFACE m b) => (a -> b) -> ObjectDefM m a ()
+implements fn = case gqlTypeDef idef of
+    TypeDefInterface i -> unit
+      { odInterfaces = [ i ]
+      , odFields     = [ castField fn f | f <- gqlFields idef ]
+      }
+    _ -> unit
+  where idef = def :: GraphQLTypeDef INTERFACE m b
 
 -- object definition monad, used to trick the do notation into doing what we want
 -- rebindable syntax seemed like overkill
 
 data ObjectDefM m a b = ObjectDefM
-  { objectDefDesc       :: Description
-  , objectDefFields     :: [GraphQLFieldDef m a]
-  , objectDefInterfaces :: Interfaces
+  { odDesc       :: Description
+  , odFields     :: [GraphQLFieldDef m a]
+  , odInterfaces :: Interfaces
   }
 
 instance DefinitionBuilder (ObjectDefM m a) where
   unit = ObjectDefM
-    { objectDefDesc       = ""
-    , objectDefFields     = []
-    , objectDefInterfaces = []
+    { odDesc       = ""
+    , odFields     = []
+    , odInterfaces = []
     }
   merge x y = ObjectDefM
-    { objectDefDesc       = objectDefDesc       x <> objectDefDesc       y
-    , objectDefFields     = objectDefFields     y <> objectDefFields     x -- reversed for shadowing
-    , objectDefInterfaces = objectDefInterfaces x <> objectDefInterfaces y
+    { odDesc       = odDesc       x <> odDesc       y
+    , odFields     = odFields     y <> odFields     x -- reversed for shadowing
+    , odInterfaces = odInterfaces x <> odInterfaces y
     }
 
 instance Functor     (ObjectDefM m a) where fmap  = fmapDef
 instance Applicative (ObjectDefM m a) where (<*>) = applyDef ; pure _ = unit
 instance Monad       (ObjectDefM m a) where (>>=) = bindDef  ; (>>)   = seqDef
 
-instance Describeable (ObjectDefM m a) where
-  describe d = unit { objectDefDesc = d }
+instance Describable (ObjectDefM m a) where
+  describe d = unit { odDesc = d }
 
 instance HasFields ObjectDefM m a b where
-  fieldSingleton f = unit { objectDefFields = [f] }
+  fieldSingleton f = unit { odFields = [f] }

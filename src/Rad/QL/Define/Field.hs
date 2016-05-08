@@ -1,51 +1,44 @@
 {-# LANGUAGE ExistentialQuantification
-           , FlexibleInstances
-           , KindSignatures
-           , MultiParamTypeClasses
-           , OverloadedStrings
            , ScopedTypeVariables #-}
 
 module Rad.QL.Define.Field where
 
 import qualified Data.ByteString as B
 import           Data.ByteString.Builder
-import qualified Data.List       as List
 import           Data.Maybe (fromJust, fromMaybe)
 import           Data.Monoid ((<>))
+import qualified Data.Trie       as Trie
+
+import Rad.QL.Internal.Builders
+import Rad.QL.Internal.Types
 
 import Rad.QL.AST
 import Rad.QL.Define.Util
-import Rad.QL.Internal.Types
+import Rad.QL.Query
 import Rad.QL.Types
 
 class HasFields d m a u where
   fieldSingleton :: GraphQLFieldDef m a -> d m a u
 
-data GraphQLFieldDef m a = GraphQLFieldDef
-  { fieldDef      :: FieldDef
-  , fieldResolver :: Field -> a -> Result m
-  }
-
 data FieldResolver m a b = (Monad m) => FieldResolver
-  { run :: [Argument] -> a -> SelectionSet -> Result m }
+  { runField :: FieldRunner m a }
 
 field :: forall d m a b u. (HasFields d m a u, GraphQLValue m b)
       => Name -> FieldDefM m a (FieldResolver m a b) -> d m a u
 field n fdef = fieldSingleton fdef'
   where fdef' = GraphQLFieldDef { fieldDef = def, fieldResolver = res }
-        def = FieldDef n (fdDesc    fdef)
-                         (fdDepr    fdef)
-                         (fdArgs    fdef)
+        def = FieldDef n (fdDesc fdef)
+                         (fdArgs fdef)
                          (graphQLValueTypeRef (undefined :: m b))
                          (graphQLValueTypeDef (undefined :: m b))
-        res (Field a n args _ ss) x = alias a n <$> res' (performValidations args x $ fdVals fdef)
-          where res' (ERR e) = errorMsg e
-                res' _       = run (unwrap fdef) args x ss
+                         (fdDepr fdef)
+        res args x = res' (performValidations args x $ fdVals fdef)
+          where res' (ERR e) = \_ -> errorMsg e
+                res' _       = runField (unwrap fdef) args x
 
-alias :: Alias -> Name -> Builder -> Builder
-alias a n b = buildString k <> charUtf8 ':' <> b
-  where k | a == ""   = n
-          | otherwise = a
+-- special type name resolver
+resolveTypeName :: (Monad m) => Name -> FieldRunner m a
+resolveTypeName tn _ _ _ = pure $ buildString tn
 
 performValidations :: a -> b -> [a -> b -> Validation] -> Validation
 performValidations x y = go
@@ -54,10 +47,11 @@ performValidations x y = go
                   | otherwise = val
           where val = v x y
 
--- empty token, it'll be the infix combinator that does the magic
-
 resolve :: Resolve m a b (FieldDefM m a (FieldResolver m a b))
 resolve = pure
+
+resolveStub :: (Monad m) => FieldDefM m a (FieldResolver m a UNDEFINED)
+resolveStub = resolve *~> UNDEFINED
 
 -- infixl 1 $->, $->?, $->>, $-?>>,
 --          $~>, $~>?, $~>>, $~>>?,
@@ -73,11 +67,11 @@ type Resolve m a b r = FieldResolver m a b -> r
 
 -- TODO: ERROR HANDLING 
 
-($->)  :: (GraphQLValue m b) => Resolve m a b r -> ([Argument] -> a -> b) -> r
+($->)  :: (GraphQLValue m b) => Resolve m a b r -> (QArgs -> a -> b) -> r
 f $->  fn = f $ FieldResolver res
   where res args x ss = graphQLValueResolve ss $ fn args x
 
-($->>) :: (GraphQLValue m b) => Resolve m a b r -> ([Argument] -> a -> m b) -> r
+($->>) :: (GraphQLValue m b) => Resolve m a b r -> (QArgs -> a -> m b) -> r
 f $->> fn = f $ FieldResolver res
   where res args x ss = resultM $ graphQLValueResolve ss <$> fn args x
 
@@ -87,10 +81,10 @@ f $~>  fn = f $->  \_ -> fn
 ($~>>) :: (GraphQLValue m b) => Resolve m a b r -> (a -> m b) -> r
 f $~>> fn = f $->> \_ -> fn
 
-(*->)  :: (GraphQLValue m b) => Resolve m a b r -> ([Argument] -> b) -> r
+(*->)  :: (GraphQLValue m b) => Resolve m a b r -> (QArgs -> b) -> r
 f *->  fn = f $->  const . fn
 
-(*->>) :: (GraphQLValue m b) => Resolve m a b r -> ([Argument] -> m b) -> r
+(*->>) :: (GraphQLValue m b) => Resolve m a b r -> (QArgs -> m b) -> r
 f *->> fn = f $->> const . fn
 
 (*~>)  :: (GraphQLValue m b) => Resolve m a b r -> b -> r
@@ -110,8 +104,8 @@ data FieldDefM m a b = FieldDefM
   { fdDesc    :: Description
   , fdDepr    :: Description
   , fdArgs    :: ArgumentsDef
-  , fdVals    :: [[Argument] -> a -> Validation]
-  , fdMids    :: [[Argument] -> a -> m Validation]
+  , fdVals    :: [QArgs -> a -> Validation]
+  , fdMids    :: [QArgs -> a -> m Validation]
   , unwrap    :: b
   }
 
@@ -151,25 +145,23 @@ instance Monad (FieldDefM m a) where
              , fdMids = fdMids m <> fdMids k
              }
 
-instance Describeable (FieldDefM m a) where
+instance Describable (FieldDefM m a) where
   describe d = (pure ()) { fdDesc = d }
 
-instance Deprecateable (FieldDefM m a) where
+instance Deprecatable (FieldDefM m a) where
   deprecate d = (pure ()) { fdDepr = d }
 
 -- | ARGUMENTS
 -- TODO: refactor this into its own thing so we can do mutations
 
 -- arg builders
-type ArgLens b = [Argument] -> b
+type ArgLens b = QArgs -> b
 type Arg m a b = FieldDefM m a (ArgLens b)
 
-getArg :: (GraphQLScalar b) => Name -> [Argument] -> Maybe b
-getArg n = applyArgVal                    -- deserialize result
-         . fromMaybe (Argument n NoValue) -- create empty entry for nullable case
-         . List.find matchArgName         -- try to get the value
-  where matchArgName (Argument n' _) = n' == n
-        applyArgVal (Argument _ v) = deserialize v
+getArg :: (GraphQLScalar b) => Name -> QArgs -> Maybe b
+getArg n = deserialize      -- deserialize result
+         . fromMaybe QEmpty -- create empty entry for nullable case
+         . Trie.lookup n    -- try to get the value
 
 arg :: forall m a b. (GraphQLValue m b, GraphQLScalar b) => Name -> FieldDefM m a (ArgLens b)
 arg n = lens { fdArgs = [def], fdVals = [val] }
@@ -179,7 +171,7 @@ arg n = lens { fdArgs = [def], fdVals = [val] }
         t     = graphQLValueTypeRef (undefined :: m b)
         val   = const
               . assertJust "Invalid argument"
-              . (getArg n :: [Argument] -> Maybe b)
+              . (getArg n :: QArgs -> Maybe b)
 
 -- assert that a value exists, otherwise throw an error
 assertJust :: B.ByteString -> Maybe a -> Validation
@@ -187,7 +179,7 @@ assertJust _ (Just _) = OK
 assertJust e Nothing  = ERR e
 
 -- argument combinators
-infixl 8 |=, @>
+infixl 8 |=
 
 (|=) :: (GraphQLValue m b, GraphQLScalar b)
      => FieldDefM m a (ArgLens (Maybe b)) -> b -> FieldDefM m a (ArgLens b)
@@ -196,6 +188,8 @@ a |= v = lens { fdArgs = [def] }
         withDefault def f = fromMaybe def . f
         def = case head (fdArgs a) of
                    InputValueDef n d t td _ -> InputValueDef n d t td $ Just $ serialize v
+
+infixl 7 @>
 
 (@>) :: (GraphQLValue m b, GraphQLScalar b)
      => FieldDefM m a (ArgLens b) -> ArgDefM b u -> FieldDefM m a (ArgLens b)
@@ -226,5 +220,5 @@ instance Functor     (ArgDefM b) where fmap  = fmapDef
 instance Applicative (ArgDefM b) where (<*>) = applyDef ; pure _ = unit
 instance Monad       (ArgDefM b) where (>>=) = bindDef  ; (>>)   = seqDef
 
-instance Describeable (ArgDefM b) where
+instance Describable (ArgDefM b) where
   describe d = ArgDefM { adDesc = d, adVals = [] }

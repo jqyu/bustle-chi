@@ -1,15 +1,13 @@
-{-# LANGUAGE OverloadedStrings
-           , ScopedTypeVariables #-}
-
 module Rad.QL.Internal.Types where
 
 import           Control.Arrow (first, second, (&&&))
 import qualified Data.ByteString as B
 import           Data.ByteString.Builder
 import           Data.Monoid ((<>))
-import           Data.Word8 (Word8)
 
 import Rad.QL.AST
+import Rad.QL.Internal.Builders
+import Rad.QL.Query
 
 -- | Subresult
 
@@ -32,7 +30,7 @@ instance (Applicative m) => Applicative (SubResult m) where
 
 type Result m = SubResult m Builder
 
-collectResults :: forall m. (Monad m) => [Result m] -> Result m
+collectResults :: (Monad m) => [Result m] -> Result m
 collectResults rs = joinList <$> sequenceA rs
 
 -- subresult utils
@@ -43,39 +41,45 @@ nullResult = SubResult (buildNull, [])
 errorMsg :: B.ByteString -> Result m
 errorMsg e = SubResult (buildNull, [e])
 
-buildNull :: Builder
-buildNull = byteString "null"
+-- | GraphQLFieldDef
 
-buildString :: B.ByteString -> Builder
-buildString x = charUtf8 '"' <> B.foldl escape mempty x <> charUtf8 '"'
-  -- TODO: check for more rescapable character
-  where escape :: Builder -> Word8 -> Builder
-        escape b 0x22 = b <> charUtf8 '\\' <> charUtf8 '"'
-        escape b 0x5c = b <> charUtf8 '\\' <> charUtf8 '\\'
-        escape b 0x0d = b <> charUtf8 '\\' <> charUtf8 'r'
-        escape b 0x0a = b <> charUtf8 '\\' <> charUtf8 'n'
-        escape b c    = b <> word8 c
+type FieldRunner m a = QArgs -> a -> QSelectionSet -> Result m
 
-joinObject :: [ Builder ] -> Builder
-joinObject vals = charUtf8 '{'
-               <> joinComma vals
-               <> charUtf8 '}'
+data GraphQLFieldDef m a = GraphQLFieldDef
+  { fieldDef      :: FieldDef
+  , fieldResolver :: FieldRunner m a
+  }
 
-joinList :: [ Builder ] -> Builder
-joinList vals = charUtf8 '['
-             <> joinComma vals
-             <> charUtf8 ']'
-
-joinComma :: [ Builder ] -> Builder
-joinComma = joinBuilders $ charUtf8 ','
-
-joinBuilders :: Builder -> [ Builder ] -> Builder
-joinBuilders _    []  = mempty
-joinBuilders j (x:xs) = x <> mconcat [ j <> x' | x' <- xs ]
+castField :: (a -> b) -> GraphQLFieldDef m b -> GraphQLFieldDef m a
+castField fn f = f { fieldResolver = r' }
+  where r = fieldResolver f
+        r' args = r args . fn
 
 -- | GraphQLTypeDef
 
+type Resolver m a = QSelectionSet -> a -> Result m
+
 data GraphQLTypeDef k m a = GraphQLTypeDef
   { gqlTypeDef :: TypeDef
-  , gqlResolve :: SelectionSet -> a -> Result m
+  , gqlResolve :: QSelectionSet -> a -> Result m
+  , gqlFields  :: [GraphQLFieldDef m a]
+  }
+
+castResolve :: (a -> b) -> Resolver m b -> Resolver m a
+castResolve fn r args = r args . fn
+
+undefinedTypeDef :: TypeDef
+undefinedTypeDef = TypeDefScalar $ ScalarTypeDef "UndefinedType"
+   $ "Type which denotes an undefined value, "
+  <> "if you see this in your schema then one of your fields is missing an implementation"
+  <> "\n TODO: raise a warning automatically if this appears"
+
+undefinedTypeRef :: Type
+undefinedTypeRef = TypeNamed $ NamedType "UndefinedType"
+
+emptyDef :: GraphQLTypeDef k m a
+emptyDef = GraphQLTypeDef
+  { gqlTypeDef = undefinedTypeDef
+  , gqlResolve = \_ _ -> errorMsg "UNDEFINED TYPE"
+  , gqlFields  = []
   }

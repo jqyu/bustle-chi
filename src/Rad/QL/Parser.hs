@@ -1,6 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-
 -- TODO: Parsing validation
 -- thread a type dictionary through the parser
 -- to determine the AST only produces valid queries

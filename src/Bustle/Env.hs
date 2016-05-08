@@ -1,9 +1,20 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Bustle.Env where
+module Bustle.Env
+  ( Stage(..)
+  , Session(..)
+  , BustleEnv(..)
+  , Haxl
+  , initBustleEnv
+
+  , module Haxl.Core
+  , module Rad.QL
+  ) where
 
 import Data.ByteString (ByteString)
 import Haxl.Core
+
+import Rad.QL
 
 data Stage = Production
            | Beta

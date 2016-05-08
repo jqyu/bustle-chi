@@ -1,12 +1,6 @@
 {-# LANGUAGE DefaultSignatures
            , EmptyDataDecls
-           , ExistentialQuantification
-           , FlexibleContexts
-           , FlexibleInstances
            , FunctionalDependencies
-           , KindSignatures
-           , MultiParamTypeClasses
-           , OverloadedStrings
            , ScopedTypeVariables #-}
 
 module Rad.QL.Types
@@ -21,24 +15,29 @@ module Rad.QL.Types
   , GraphQLType(..)
   , GraphQLValue(..)
 
-  , TypeDict
-  , Schema
+  -- utilities
+  , resolveScalar
 
   ) where
 
 import qualified Data.Aeson              as JSON
 import qualified Data.Aeson.Encode       as JSON
 import qualified Data.ByteString         as B
-import           Data.ByteString.Builder
 import qualified Data.ByteString.Char8   as BC8
 import qualified Data.Text               as T
 import qualified Data.Text.Encoding      as TE
 import qualified Data.Trie               as Trie
+import           GHC.Generics
 
-import Rad.QL.AST
+import Rad.QL.Internal.Builders
+import Rad.QL.Internal.GEnum
 import Rad.QL.Internal.Types
 
--- internal GraphQL kinds, note that we assume non-null by default
+import Rad.QL.AST
+import Rad.QL.Query
+
+-- | GraphQL Kinds
+-- Internal GraphQL kinds, note that we assume non-null by default
 data OBJECT
 data SCALAR
 data ENUM
@@ -48,21 +47,23 @@ data INPUT_OBJECT
 data LIST_OF
 data NULLABLE
 
--- A schema consists of a type dictionary,
--- a root query resolver, and a root mutation resolver
-
-type TypeDict = Trie.Trie TypeDef
-
-data Schema m q = (GraphQLType OBJECT m q) => Schema TypeDict q
+-- | GraphQLType
 
 -- A GraphQLType says that a type can be resolved against a given monad
 class (Monad m) => GraphQLType kind m a | a -> kind where
   def :: GraphQLTypeDef kind m a
 
+-- | GraphQL Scalar
+
 -- A GraphQLScalar can be read off of an input value, and serialized directly to a result
 class GraphQLScalar a where
-  serialize   :: a -> Builder
-  deserialize :: Value -> Maybe a
+  serialize   :: a      -> Builder
+  deserialize :: QValue -> Maybe a
+
+  default serialize   :: (IsEnum a) => a      -> Builder
+  serialize   = enumSerialize
+  default deserialize :: (IsEnum a) => QValue -> Maybe a
+  deserialize = enumDeserialize
 
 instance (GraphQLScalar a) => GraphQLScalar (Maybe a) where
   serialize Nothing = buildNull
@@ -71,23 +72,23 @@ instance (GraphQLScalar a) => GraphQLScalar (Maybe a) where
 
 instance (GraphQLScalar a) => GraphQLScalar [a] where
   serialize vs = joinList [ serialize v | v <- vs ]
-  deserialize (ValueList (ListValue vs)) = traverse deserialize vs
-  deserialize _ = Nothing
+  deserialize (QList vs) = traverse deserialize vs
+  deserialize _          = Nothing
 
 -- Built-in Scalar instances
 
-resolveScalar :: (GraphQLScalar a, Monad m) => SelectionSet -> a -> Result m
+resolveScalar :: (GraphQLScalar a, Monad m) => QSelectionSet -> a -> Result m
 resolveScalar [] = pure . serialize
 resolveScalar _  = \_ -> errorMsg "Scalar cannot take a subselection"
 
 defineScalar :: (Monad m, GraphQLScalar a) => Name -> Description -> GraphQLTypeDef SCALAR m a
-defineScalar n d = GraphQLTypeDef { gqlTypeDef = td, gqlResolve = resolveScalar }
+defineScalar n d = emptyDef { gqlTypeDef = td, gqlResolve = resolveScalar }
   where td = TypeDefScalar $ ScalarTypeDef n d
 
 instance GraphQLScalar Int where
-  serialize                = intDec
-  deserialize (ValueInt v) = Just v
-  deserialize _            = Nothing
+  serialize            = intDec
+  deserialize (QInt v) = Just v
+  deserialize _        = Nothing
 instance (Monad m) => GraphQLValue m Int
 instance (Monad m) => GraphQLType SCALAR m Int where
   def = defineScalar "Int" $
@@ -97,8 +98,8 @@ instance (Monad m) => GraphQLType SCALAR m Int where
 
 instance GraphQLScalar Double where
   serialize                  = doubleDec -- NOTE: currently slow, hopefully this will be fixed upstream
-  deserialize (ValueInt   v) = Just $ fromIntegral v
-  deserialize (ValueFloat v) = Just v
+  deserialize (QInt   v) = Just $ fromIntegral v
+  deserialize (QFloat v) = Just v
   deserialize _              = Nothing
 instance (Monad m) => GraphQLValue m Double
 instance (Monad m) => GraphQLType SCALAR m Double where
@@ -109,10 +110,10 @@ instance (Monad m) => GraphQLType SCALAR m Double where
 
 instance GraphQLScalar B.ByteString where
   serialize = buildString
-  deserialize (ValueInt     v) = Just $ BC8.pack $ show v
-  deserialize (ValueFloat   v) = Just $ BC8.pack $ show v
-  deserialize (ValueBoolean v) = Just $ BC8.pack $ show v
-  deserialize (ValueString  v) = Just v
+  deserialize (QInt    v) = Just $ BC8.pack $ show v
+  deserialize (QFloat  v) = Just $ BC8.pack $ show v
+  deserialize (QBool   v) = Just $ BC8.pack $ show v
+  deserialize (QString v) = Just v
   deserialize _                = Nothing
 instance (Monad m) => GraphQLValue m B.ByteString
 instance (Monad m) => GraphQLType SCALAR m B.ByteString where
@@ -121,10 +122,10 @@ instance (Monad m) => GraphQLType SCALAR m B.ByteString where
 
 instance GraphQLScalar T.Text where
   serialize                    = buildString . TE.encodeUtf8
-  deserialize (ValueInt     v) = Just $ T.pack $ show v
-  deserialize (ValueFloat   v) = Just $ T.pack $ show v
-  deserialize (ValueBoolean v) = Just $ T.pack $ show v
-  deserialize (ValueString  v) = Just $ TE.decodeUtf8 v
+  deserialize (QInt    v) = Just $ T.pack $ show v
+  deserialize (QFloat  v) = Just $ T.pack $ show v
+  deserialize (QBool   v) = Just $ T.pack $ show v
+  deserialize (QString v) = Just $ TE.decodeUtf8 v
   deserialize _                = Nothing
 instance (Monad m) => GraphQLValue m T.Text
 instance (Monad m) => GraphQLType SCALAR m T.Text where
@@ -143,22 +144,21 @@ instance (Monad m) => GraphQLType SCALAR m Builder where
 instance GraphQLScalar Bool where
   serialize True               = byteString "true"
   serialize False              = byteString "false"
-  deserialize (ValueBoolean v) = Just v
+  deserialize (QBool v) = Just v
   deserialize _                = Nothing
 instance (Monad m) => GraphQLValue m Bool
 instance (Monad m) => GraphQLType SCALAR m Bool where
-  def = defineScalar "Bool" $
+  def = defineScalar "Boolean" $
     "TODO: copy and paste description"
 
 instance GraphQLScalar JSON.Value where
   serialize                   = JSON.encodeToBuilder
-  deserialize (ValueString v) = JSON.decodeStrict v
+  deserialize (QString v) = JSON.decodeStrict v
   deserialize _               = Nothing
 instance (Monad m) => GraphQLValue m JSON.Value
 instance (Monad m) => GraphQLType SCALAR m JSON.Value where
   def = defineScalar "JSON" $
     "TODO: write a description"
-
 
 -- A GraphQLValue denotes some value which can be resolve,
 --   i.e. some type instance, its nullable (Maybe a), or list ([a])
@@ -166,7 +166,7 @@ instance (Monad m) => GraphQLType SCALAR m JSON.Value where
 class (Monad m) => GraphQLValue m a where
   graphQLValueTypeDef :: m a -> TypeDef
   graphQLValueTypeRef :: m a -> Type
-  graphQLValueResolve :: SelectionSet -> a -> Result m
+  graphQLValueResolve :: QSelectionSet -> a -> Result m
 
   default graphQLValueTypeDef :: (GraphQLType kind m a) => m a -> TypeDef
   graphQLValueTypeDef = graphQLValueTypeDef'
@@ -174,7 +174,7 @@ class (Monad m) => GraphQLValue m a where
   default graphQLValueTypeRef :: (GraphQLType kind m a) => m a -> Type
   graphQLValueTypeRef = graphQLValueTypeRef'
 
-  default graphQLValueResolve :: (GraphQLType kind m a) => SelectionSet -> a -> Result m
+  default graphQLValueResolve :: (GraphQLType kind m a) => QSelectionSet -> a -> Result m
   graphQLValueResolve = graphQLValueResolve'
 
 graphQLValueTypeDef' :: forall m a kind. (GraphQLType kind m a) => m a -> TypeDef
@@ -187,7 +187,7 @@ graphQLValueTypeRef' _ = TypeNonNull
                        $ typeDefName
                        $ gqlTypeDef (def :: GraphQLTypeDef kind m a)
 
-graphQLValueResolve' :: forall m a kind. (GraphQLType kind m a) => SelectionSet -> a -> Result m
+graphQLValueResolve' :: forall m a kind. (GraphQLType kind m a) => QSelectionSet -> a -> Result m
 graphQLValueResolve' = gqlResolve (def :: GraphQLTypeDef kind m a)
 
 

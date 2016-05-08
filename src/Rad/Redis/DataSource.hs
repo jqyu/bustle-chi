@@ -1,8 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable,
-             FlexibleContexts,
              GADTs,
-             MultiParamTypeClasses,
-             OverloadedStrings,
              StandaloneDeriving #-}
 
 module Rad.Redis.DataSource

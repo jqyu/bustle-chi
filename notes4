@@ -1,0 +1,50 @@
+instance GraphQLType OBJECT Haxl RootQuery where
+
+  def = defineObject "RootQuery" $ do
+
+    -- meta
+
+    describe
+      $ "Root query type, important for all sorts of good stuff"
+      |.. "blah blah blah blah blah the list goes on and on"
+
+    -- public fields
+
+    field "posts"  $ all HasPost :: Field (Connection Edge Post)
+
+    field "users"  $ all HasUser :: Field (Connection Edge User)
+
+    field "bustle" $ resolve *~>  BustleRoot
+
+    -- authenticated fields
+
+    field "me"     $ resolve *->> getSession
+
+    field "max"    $ resolve *->> getMaxRoot
+
+    field "prime"  $ do
+      describe "protected field only available for bustle prime users"
+      requires $ authentication
+      requires $ membership PRIME
+      resolve *~>> PrimeRoot
+
+    field "gold"   $ do
+      describe "also available on reddit silver"
+      requires $ membership GOLD ||| membership SILVER ||| membership OK
+      l <- arg
+      resolver $~> \v ->
+        let goldusers   = v |> outE hasGold
+            cohabitants = goldUsers |> inE LivesIn |> outE LivesIn
+            colleagues  = goldUsers |> inE WorksAt |> outE WorksAt
+            in intersect <$> cohabitants <*> colleagues
+
+    field "simple" $ resolver $~> myFunction
+
+all l = do
+  first  <- arg "first"  |= 30
+  cursor <- arg "cursor" |= 0
+  resolve $->> \v args -> G.v v
+    |> E.out l
+    |> limit (first args)
+    |> after (cursor args)
+    |> connection

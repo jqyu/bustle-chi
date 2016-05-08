@@ -1,14 +1,12 @@
-{-# LANGUAGE FlexibleInstances
-           , MultiParamTypeClasses
-           , TypeSynonymInstances
-           , OverloadedStrings #-}
-
 module Bustle.QL.Schema where
 
-import Haxl.Core
+import qualified Data.ByteString as B
 
 import Bustle.Env
-import Rad.QL
+import Bustle.QL.Interfaces
+import Bustle.QL.Scalars
+
+import Bustle.QL.API.Bustle (BustleAPI(..))
 
 data RootQueryType = RootQueryType deriving (Eq, Show)
 
@@ -17,14 +15,30 @@ instance GraphQLType OBJECT Haxl RootQueryType where
 
   def = defineObject "RootQueryType" $ do
 
-    describe "Root query type or graph.bustle.com"
+    describe
+      $.. "Root query type or graph.bustle.com"
       |.. "Contains a field for each domain"
 
-    -- introspection schema
+    introspection schema
 
+    -- tests
+    field "scalarTest" $ do
+      describe "some silly test or another"
+      x <- arg "id" |= ""
+      resolve *-> Id . x
+
+    field "nodes" $ do
+      describe "an array of interface nodes"
+      resolve *~> nodes
+
+    field "unionNodes" $ do
+      describe "either or"
+      resolve *~> unionNodes
+
+    -- stubs
     field "bustle" $ do
       describe ""
-      resolve *~> (1 :: Int)
+      resolve *~> BustleAPI
 
     field "max" $ do
       describe ""
@@ -35,6 +49,9 @@ instance GraphQLType OBJECT Haxl RootQueryType where
       describe "Mappings to the original api.bustle.com Grape app"
       resolve *~> (3 :: Int)
 
--- schema :: Schema Haxl RootQueryType
--- schema = defineSchema RootQueryType $ concat
+    field "echo" $ do
+      s <- arg "echoString" :: Arg Haxl RootQueryType B.ByteString
+      resolve *-> s
 
+schema :: Schema Haxl
+schema = defineSchema RootQueryType
