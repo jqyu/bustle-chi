@@ -1,17 +1,18 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Bustle.Env
   ( Stage(..)
   , Session(..)
   , BustleEnv(..)
   , Haxl
-  , initBustleEnv
 
+  -- acts as a library prelude
+  , module GHC.Generics
   , module Haxl.Core
   , module Rad.QL
+
   ) where
 
 import Data.ByteString (ByteString)
+import GHC.Generics
 import Haxl.Core
 
 import Rad.QL
@@ -29,9 +30,3 @@ data BustleEnv = BustleEnv
   }
 
 type Haxl = GenHaxl BustleEnv
-
-initBustleEnv :: Stage -> IO (Env BustleEnv)
-initBustleEnv st = initEnv stateEmpty bustleEnv
-  where bustleEnv = BustleEnv { stage   = st
-                              , session = Unauthed
-                              }

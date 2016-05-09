@@ -1,6 +1,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Rad.QL.Define.Union where
+module Rad.QL.Define.Union
+  ( defineUnion
+  , GraphQLUnion(..)
+  ) where
+
+import GHC.Generics
 
 import Rad.QL.Internal.GUnion
 import Rad.QL.Internal.Types
@@ -16,3 +21,18 @@ defineUnion n desc = emptyDef
     }
   where ts = unionTypes (undefined :: m a)
         td = UnionTypeDef n desc ts
+
+-- definition-free wrapper
+-- you still need to declare the GraphQLValue instance though
+-- so you can decide whether or not this is worthwhile
+
+newtype GraphQLUnion a = GraphQLUnion { unwrapUnion :: a }
+
+instance (IsUnion m a) => GraphQLType UNION m (GraphQLUnion a) where
+
+  def = subdef { gqlResolve = castResolve unwrapUnion subres
+               , gqlFields  = []
+               }
+    where subdef  = defineUnion subname "" :: GraphQLTypeDef UNION m a
+          subres  = gqlResolve subdef
+          subname = unionName (undefined :: m a)

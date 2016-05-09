@@ -3,7 +3,7 @@
 module Rad.QL.Define.Object
   ( defineObject
   , implements
-  , ObjectDefM(..)
+  , ObjectFragment
   ) where
 
 import           Control.Arrow (first)
@@ -87,6 +87,7 @@ implements fn = case gqlTypeDef idef of
 -- object definition monad, used to trick the do notation into doing what we want
 -- rebindable syntax seemed like overkill
 
+type ObjectFragment m a = ObjectDefM m a ()
 data ObjectDefM m a b = ObjectDefM
   { odDesc       :: Description
   , odFields     :: [GraphQLFieldDef m a]

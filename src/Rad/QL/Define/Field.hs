@@ -161,7 +161,7 @@ type Arg m a b = FieldDefM m a (ArgLens b)
 getArg :: (GraphQLScalar b) => Name -> QArgs -> Maybe b
 getArg n = deserialize      -- deserialize result
          . fromMaybe QEmpty -- create empty entry for nullable case
-         . Trie.lookup n    -- try to get the value
+         . qArgsLookup n    -- try to get the value
 
 arg :: forall m a b. (GraphQLValue m b, GraphQLScalar b) => Name -> FieldDefM m a (ArgLens b)
 arg n = lens { fdArgs = [def], fdVals = [val] }

@@ -3,9 +3,9 @@ module Bustle.QL.Schema where
 import qualified Data.ByteString as B
 
 import Bustle.Env
+import qualified Bustle.Data.Post as Post
 import Bustle.QL.Interfaces
 import Bustle.QL.Scalars
-
 import Bustle.QL.API.Bustle (BustleAPI(..))
 
 data RootQueryType = RootQueryType deriving (Eq, Show)
@@ -34,6 +34,10 @@ instance GraphQLType OBJECT Haxl RootQueryType where
     field "unionNodes" $ do
       describe "either or"
       resolve *~> unionNodes
+
+    field "intOrBoolNodes" $ resolve *~> unionNodes'
+
+    Post.mixin -- implements the root post fields
 
     -- stubs
     field "bustle" $ do

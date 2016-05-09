@@ -4,11 +4,13 @@
 
 module Rad.QL.Define.Introspection where
 
-import qualified Data.ByteString as B
-import           Data.Monoid     ((<>))
-import qualified Data.Trie       as Trie
+import qualified Data.ByteString      as B
+import qualified Data.ByteString.Lazy as L
+import           Data.Monoid          ((<>))
+import qualified Data.Trie            as Trie
 import           GHC.Generics
 
+import Rad.QL.Internal.Builders
 import Rad.QL.Internal.Types
 
 import Rad.QL.AST
@@ -23,7 +25,7 @@ import Rad.QL.Define.Util
 
 -- | Schema Introspection Mixin
 
-introspection :: forall m a b. (Monad m) => Schema m -> ObjectDefM m a b
+introspection :: forall m a. (Monad m) => Schema m -> ObjectFragment m a
 introspection schema = let dict = typeDict schema in do
 
   field "__schema" $ do
@@ -235,7 +237,11 @@ instance (Monad m) => GraphQLType R.OBJECT m InputValue__ where
 
     -- defaultValue: String
     field "defaultValue" $ resolve $~>
-      \(InputValue__ (InputValueDef _ _ _ _ d) _) -> d
+      \(InputValue__ (InputValueDef _ _ _ _ d) _) ->
+        case toLazyByteString <$> d >>= L.uncons of
+             Just (0x22, _) -> d
+             Just (w, ws)   -> Just . buildString . L.toStrict $ L.cons w ws
+             _              -> Nothing
 
 -- | __EnumValue
 

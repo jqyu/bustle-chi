@@ -38,7 +38,16 @@ data QField  = QField  Alias Name QArgs QSelectionSet
 
 type QCond = ObjectTypeDef -> Bool
 
-type QArgs = Trie.Trie QValue
+newtype QArgs = QArgs (Trie.Trie QValue) deriving (Eq, Show)
+
+qArgsEmpty :: QArgs
+qArgsEmpty = QArgs Trie.empty
+
+qArgs :: [(Name, QValue)] -> QArgs
+qArgs = QArgs . Trie.fromList
+
+qArgsLookup :: Name -> QArgs -> Maybe QValue
+qArgsLookup n (QArgs trie) = Trie.lookup n trie
 
 data QValue = QInt    Int
             | QFloat  Double
@@ -59,9 +68,9 @@ process schema values (Document defs) = do
                _   -> Left "Rad.QL wants exactly one operation"
     -- extract value definitions
     vals <- case values of
-                 JSON.Null      -> Right Trie.empty
+                 JSON.Null      -> Right qArgsEmpty
                  JSON.Object o  -> Right $ processObject o
-                 JSON.String "" -> Right Trie.empty
+                 JSON.String "" -> Right qArgsEmpty
                  _              -> Left "Invalid variable definitions provided"
    -- extract node from operation
     let Node _ vds _ ss = -- for now we ignore query directives
@@ -69,7 +78,7 @@ process schema values (Document defs) = do
                Query n    -> n
                Mutation n -> n
     -- process variables
-    vars <- Trie.fromList <$> traverse (readVal vals) vds
+    vars <- qArgs <$> traverse (readVal vals) vds
     -- walk tree
     return $ packOp op $ walk vars ss
   where tdict = typeDict schema
@@ -79,7 +88,7 @@ process schema values (Document defs) = do
         readVal vals (VariableDef (Variable n) t d) =
           case Trie.lookup (typeRefName t) tdict of
                Nothing -> Left  $ "Variable \"$" <> n <> "\" is of unknown type: \"" <> typeRefName t <> "\""
-               _       -> Right $ (n, Trie.lookup n vals |?| processLiteral <$> d)
+               _       -> Right $ (n, qArgsLookup n vals |?| processLiteral <$> d)
         getTypeCondition (NamedType n) =
           case Trie.lookup n tdict of
                Just (TypeDefObject    o) -> Just (o ==)
@@ -128,7 +137,7 @@ processLiteral (ValueBoolean  v) = QBool   v
 processLiteral (ValueString   v) = QString v
 processLiteral (ValueEnum     v) = QString v
 processLiteral (ValueList (ListValue vs))     = QList $ map processLiteral  vs
-processLiteral (ValueObject (ObjectValue fs)) = QObj $ Trie.fromList
+processLiteral (ValueObject (ObjectValue fs)) = QObj $ qArgs
   [ (n, processLiteral v) | ObjectField n v <- fs ]
 
 processValue :: QArgs -> Value -> QValue
@@ -138,13 +147,12 @@ processValue _ (ValueBoolean  v) = QBool   v
 processValue _ (ValueString   v) = QString v
 processValue _ (ValueEnum     v) = QString v
 processValue dict (ValueList (ListValue vs)) = QList $ map (processValue dict) vs
-processValue dict (ValueObject (ObjectValue fs)) = QObj $ Trie.fromList
+processValue dict (ValueObject (ObjectValue fs)) = QObj . QArgs $ Trie.fromList
   [ (n, processValue dict v) | ObjectField n v <- fs ]
-processValue dict (ValueVariable (Variable n)) = fromMaybe QEmpty $ Trie.lookup n dict
+processValue dict (ValueVariable (Variable n)) = fromMaybe QEmpty $ qArgsLookup n dict
 
 processArgs :: QArgs -> [Argument] -> QArgs
-processArgs dict args = Trie.fromList
-  [ (n, processValue dict v) | Argument n v <- args ]
+processArgs dict args = qArgs [ (n, processValue dict v) | Argument n v <- args ]
 
 processVar :: JSON.Value -> QValue
 processVar  JSON.Null      = QEmpty
@@ -155,7 +163,7 @@ processVar (JSON.Array  a) = QList []
 processVar (JSON.Object o) = QObj $ processObject o
 
 processObject :: HashMap.HashMap T.Text JSON.Value -> QArgs
-processObject o = Trie.fromList [(TE.encodeUtf8 k, processVar v) | (k, v) <- HashMap.toList o]
+processObject o = qArgs [(TE.encodeUtf8 k, processVar v) | (k, v) <- HashMap.toList o]
 
 infixl 3 |?|
 (|?|) :: Maybe QValue -> Maybe QValue -> QValue

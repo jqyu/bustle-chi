@@ -99,3 +99,14 @@ instance GraphQLType UNION Haxl NodeUnion where
   def = defineUnion "NodeUnion"
     $.. "A union of int and bool nodes"
     |.. "unlike an interface, this exposes no fields"
+
+-- instance-free union type
+
+data IntOrBoolNode = NodeInt'  IntNode
+                   | NodeBool' BoolNode
+                   deriving (Generic)
+instance GraphQLValue Haxl (GraphQLUnion IntOrBoolNode)
+
+unionNodes' :: [ GraphQLUnion IntOrBoolNode ]
+unionNodes' = [ GraphQLUnion $ NodeInt'  x | x <- intNodes  ]
+           <> [ GraphQLUnion $ NodeBool' x | x <- boolNodes ]

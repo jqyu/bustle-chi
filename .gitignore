@@ -8,3 +8,6 @@ cabal.sandbox.config
 .DS_Store
 *.swp
 *.keter
+
+# secrets
+src/Bustle/Secret.hs
