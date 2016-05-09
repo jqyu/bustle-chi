@@ -17,6 +17,7 @@ library
   hs-source-dirs:      src
   exposed-modules:     Bustle.Env
                      , Bustle.Data.Post
+                     , Bustle.Data.User
                      , Bustle.QL
                      , Bustle.QL.API.Bustle
                      , Bustle.QL.Interfaces
@@ -48,6 +49,8 @@ library
 
   build-depends:       base >= 4.7 && < 5
                      , aeson
+                     , amazonka
+                     , amazonka-dynamodb
                      , async
                      , attoparsec
                      , bytestring
@@ -56,9 +59,11 @@ library
                      , hashable
                      , haxl
                      , hedis
+                     , lens
                      , mtl
                      , pipes
                      , scientific
+                     , semigroups
                      , text
                      , transformers
                      , unordered-containers

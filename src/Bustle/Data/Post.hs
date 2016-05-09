@@ -14,26 +14,29 @@ import qualified Data.Text.Encoding    as TE
 import           Data.Typeable
 import           Database.Redis        hiding (get)
 
+-- source pragma required to break cycles
+import {-# SOURCE #-} qualified Bustle.Data.User as User
+
 import Bustle.Env
 
 -- | Friendly fetchers
 
-get :: PostId -> Haxl (Maybe Post)
+get :: Id -> Haxl (Maybe Post)
 get = dataFetch . GetPost
 
-all :: Int -> Int -> Haxl [PostId]
+all :: Int -> Int -> Haxl [Id]
 all x = dataFetch . GetIndex ID x
 
-index :: PostIndex -> Int -> Int -> Haxl [PostId]
+index :: PostIndex -> Int -> Int -> Haxl [Id]
 index x y = dataFetch . GetIndex x y
 
-range :: PostIndex -> Double -> Double -> Int -> Int -> Haxl [PostId]
+range :: PostIndex -> Double -> Double -> Int -> Int -> Haxl [Id]
 range x y z w = dataFetch . GetRange x y z w
 
 -- | Post Data Type
 
 data Post = Post
-  { postId       :: PostId
+  { postId       :: Id
   , title        :: B.ByteString
   , slug         :: B.ByteString
   , bodies       :: RawJSON
@@ -69,6 +72,10 @@ instance GraphQLType OBJECT Haxl Post where
     field "primaryMedia" $ do
       describe "A direct object dump of the primary media"
       resolve $~> primaryMedia
+
+    field "author" $ do
+      describe "The user who made the post"
+      resolve $~>> User.get . User.Id . authorId
 
 -- | Root query mixin
 
@@ -106,14 +113,14 @@ mixin = do
 
 -- | Utility Scalars
 
-newtype PostId = PostId B.ByteString deriving (Eq, Show, Typeable)
+newtype Id = Id { unwrapId :: B.ByteString } deriving (Eq, Show, Typeable)
 
-instance GraphQLScalar PostId where
-  serialize (PostId x) = serialize x
-  deserialize = fmap PostId . deserialize
+instance GraphQLScalar Id where
+  serialize (Id x) = serialize x
+  deserialize = fmap Id . deserialize
 
-instance GraphQLValue Haxl PostId
-instance GraphQLType SCALAR Haxl PostId where
+instance GraphQLValue Haxl Id
+instance GraphQLType SCALAR Haxl Id where
   def = defineScalar "ID" ""
 
 -- Raw JSON Scalar (because we don't need to parse the JSON)
@@ -161,9 +168,9 @@ indexKey AUTHOR_ID    = "author_id"
 -- Request GADT
 
 data PostReq a where
-  GetPost  :: PostId                                      -> PostReq (Maybe Post)
-  GetIndex :: PostIndex                     -> Int -> Int -> PostReq [PostId]
-  GetRange :: PostIndex -> Double -> Double -> Int -> Int -> PostReq [PostId]
+  GetPost  :: Id                                          -> PostReq (Maybe Post)
+  GetIndex :: PostIndex                     -> Int -> Int -> PostReq [Id]
+  GetRange :: PostIndex -> Double -> Double -> Int -> Int -> PostReq [Id]
   deriving (Typeable)
 
 deriving instance Eq   (PostReq a)
@@ -172,7 +179,7 @@ deriving instance Show (PostReq a)
 instance Show1 PostReq where show1 = show
 
 instance Hashable (PostReq a) where
-  hashWithSalt s (GetPost  (PostId i)   ) = hashWithSalt s (0::Int, i)
+  hashWithSalt s (GetPost  (Id i)       ) = hashWithSalt s (0::Int, i)
   hashWithSalt s (GetIndex idx       l o) = hashWithSalt s (1::Int, idx,         l, o)
   hashWithSalt s (GetRange idx mi ma l o) = hashWithSalt s (2::Int, idx, mi, ma, l, o)
 
@@ -184,9 +191,8 @@ instance StateKey PostReq where
     , keyPrefix :: B.ByteString
     }
 
-initState :: B.ByteString -> ConnectInfo -> IO (State PostReq)
-initState kp cinfo = build <$> connect cinfo
-  where build c = PostState { conn = c, keyPrefix = kp }
+initState :: Connection -> B.ByteString -> State PostReq
+initState c kp = PostState { conn = c, keyPrefix = kp }
 
 -- Data source
 
@@ -203,7 +209,7 @@ instance DataSource BustleEnv PostReq where
           kp = keyPrefix st
 
 fetchReq :: B.ByteString -> BlockedFetch PostReq -> Redis ()
-fetchReq kp (BlockedFetch (GetPost (PostId i)) rvar) = do
+fetchReq kp (BlockedFetch (GetPost (Id i)) rvar) = do
     res <- hmget (kp <> i <> ":attributes")
                  [ "id"           , "title"         , "slug"
                  , "bodies"       , "primary_media" , "type"
@@ -217,7 +223,7 @@ fetchReq kp (BlockedFetch (GetPost (PostId i)) rvar) = do
                   , state        , rating         , authorId
                   , publishedAt  , publication
                   ]
-          = Post <$> (PostId        <$> postId)
+          = Post <$> (Id            <$> postId)
                  <*> title
                  <*> slug
                  <*> (RawJSON       <$> bodies)
@@ -235,7 +241,7 @@ fetchReq kp (BlockedFetch (GetIndex idx limit offset) rvar) = do
     putRes rvar res
   where start = toInteger offset
         stop  = toInteger (offset + limit - 1)
-        toIds = fmap $ map PostId
+        toIds = fmap $ map Id
 fetchReq kp (BlockedFetch (GetRange idx zmin zmax limit offset) rvar) = do
     res <- toIds <$> zrevrangebyscoreLimit
               (kp <> "indexes:" <> indexKey idx)
@@ -246,7 +252,7 @@ fetchReq kp (BlockedFetch (GetRange idx zmin zmax limit offset) rvar) = do
     putRes rvar res
   where offset' = toInteger offset
         limit'  = toInteger limit
-        toIds   = fmap $ map PostId
+        toIds   = fmap $ map Id
 
 -- utility functions
 
