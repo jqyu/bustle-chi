@@ -202,21 +202,35 @@ instance DataSourceName PostReq where
 instance DataSource BustleEnv PostReq where
   fetch st _flags _benf bfs = AsyncFetch $ \inner -> do
       asyncReq <- async $ runRedis c 
-                        $ traverse_ (fetchReq kp) bfs
+                        $ fetchAll kp bfs
       inner
       wait asyncReq
     where c  = conn st
           kp = keyPrefix st
 
-fetchReq :: B.ByteString -> BlockedFetch PostReq -> Redis ()
-fetchReq kp (BlockedFetch (GetPost (Id i)) rvar) = do
-    res <- hmget (kp <> i <> ":attributes")
-                 [ "id"           , "title"         , "slug"
-                 , "bodies"       , "primary_media" , "type"
-                 , "state"        , "rating"        , "author_id"
-                 , "published_at" , "publication"
-                 ]
-    putRes rvar $ parsePost <$> res
+fetchAll :: B.ByteString -> [BlockedFetch PostReq] -> Redis ()
+fetchAll kp bfs = do
+  conts <- traverse (fetchReq kp) bfs
+  traverse_ (liftIO . resolveCont) conts
+
+data RCont = forall a. RCont (ResultVar a) (Either Reply a)
+
+resolveCont :: RCont -> IO ()
+resolveCont (RCont rvar (Left ex)) = putFailure rvar (replyToException ex)
+resolveCont (RCont rvar (Right a)) = putSuccess rvar a
+
+rcont :: ResultVar a -> (b -> a) -> Either Reply b -> RCont
+rcont rvar f x = RCont rvar (f <$> x)
+
+fetchReq :: B.ByteString -> BlockedFetch PostReq -> Redis RCont
+fetchReq kp (BlockedFetch (GetPost (Id i)) rvar) =
+    rcont rvar parsePost
+      <$> hmget (kp <> i <> ":attributes")
+                [ "id"           , "title"         , "slug"
+                , "bodies"       , "primary_media" , "type"
+                , "state"        , "rating"        , "author_id"
+                , "published_at" , "publication"
+                ]
   -- do they give awards for obfuscated haskell?
   where parsePost [ postId       , title          , slug
                   , bodies       , primaryMedia   , postType
@@ -236,23 +250,21 @@ fetchReq kp (BlockedFetch (GetPost (Id i)) rvar) = do
                  <*> (publication   >>= toInt)
         parsePost _ = Nothing
 
-fetchReq kp (BlockedFetch (GetIndex idx limit offset) rvar) = do
-    res <- toIds <$> zrevrange (kp <> "indexes:" <> indexKey idx) start stop
-    putRes rvar res
+fetchReq kp (BlockedFetch (GetIndex idx limit offset) rvar) =
+    rcont rvar (map Id)
+      <$> zrevrange (kp <> "indexes:" <> indexKey idx) start stop
   where start = toInteger offset
         stop  = toInteger (offset + limit - 1)
-        toIds = fmap $ map Id
-fetchReq kp (BlockedFetch (GetRange idx zmin zmax limit offset) rvar) = do
-    res <- toIds <$> zrevrangebyscoreLimit
-              (kp <> "indexes:" <> indexKey idx)
-              zmax
-              zmin
-              offset'
-              limit'
-    putRes rvar res
+fetchReq kp (BlockedFetch (GetRange idx zmin zmax limit offset) rvar) =
+    rcont rvar (map Id)
+      <$> zrevrangebyscoreLimit
+            (kp <> "indexes:" <> indexKey idx)
+            zmax
+            zmin
+            offset'
+            limit'
   where offset' = toInteger offset
         limit'  = toInteger limit
-        toIds   = fmap $ map Id
 
 -- utility functions
 
