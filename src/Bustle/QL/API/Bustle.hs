@@ -17,20 +17,17 @@ instance GraphQLType OBJECT Haxl BustleAPI where
 
     describe "Core Bustle API"
 
-    field "hello" $ resolve *~> ("world" :: B.ByteString)
+    field "hello" $ return ("world" :: B.ByteString)
 
     field "monadic" $ do
-      test <- arg "test" @> do
-        describe
-          $.. "monadic code is really neat because instead of memorizing functions"
+      test <- arg "test"
+          @>  "monadic code is really neat because instead of memorizing functions"
           |.. "and their parameters, you everything is a generalization of function composition."
           |-- "you can think of it as the builder pattern on steroids"
           |-- "this input is only valid if it's a positive prime"
-        validate $ greaterThan 0
-        validate $ lessThan 1000
-      resolve *->> \args -> do
-        let n = test args
-        return [1..n]
+      validate test $ greaterThan 0
+      validate test $ lessThan 1000
+      return [1..test]
 
 greaterThan :: Int -> Int -> Validation
 greaterThan m n | n > m     = OK

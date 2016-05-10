@@ -21,7 +21,7 @@ instance GraphQLType INTERFACE Haxl Node where
 
     field "id" $ do
       describe "globally unique ID which identifies a node"
-      resolve $~> \(Node a) -> getId a
+      resolve $-> \(Node a) -> getId a
 
     resolveInterface $ \args (Node a) ->
       resolveObject args a
@@ -55,7 +55,7 @@ instance GraphQLType OBJECT Haxl IntNode where
 
     field "intValue" $ do
       describe "the int payload of the node"
-      resolve $~> \(IntNode _ v) -> v
+      resolve $-> \(IntNode _ v) -> v
 
 -- BoolNode implementation
 
@@ -81,7 +81,7 @@ instance GraphQLType OBJECT Haxl BoolNode where
 
     field "boolValue" $ do
       describe "the bool payload of the node"
-      resolve $~> \(BoolNode _ v) -> v
+      resolve $-> \(BoolNode _ v) -> v
 
 -- union type
 

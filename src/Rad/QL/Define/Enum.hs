@@ -23,7 +23,7 @@ defineEnum n def = emptyDef
   where td   = EnumTypeDef n (edDesc def) (zipValueDefs vals $ edValues def)
         vals = enumValues (undefined :: a)
 
-enumValue :: Name -> EnumValueDefM a -> EnumDefM b
+enumValue :: Name -> EnumValueDefM a -> EnumDefM ()
 enumValue n def = unit { edValues = Trie.singleton n (evdDesc def, evdDepr def) }
 
 zipValueDefs :: [EnumValueDef] -> Trie.Trie (Description, Description) -> [EnumValueDef]
@@ -37,18 +37,25 @@ zipValueDefs ds as = map zipValueDef ds
 data EnumDefM a = EnumDefM
   { edDesc   :: Description
   , edValues :: Trie.Trie (Description, Description)
+  , unwrap   :: a
   }
 
-instance DefinitionBuilder EnumDefM where
-  unit = EnumDefM { edDesc = "", edValues = Trie.empty }
-  merge x y = EnumDefM
-    { edDesc   = edDesc   x <> edDesc   y
-    , edValues = edValues x <> edValues y
+instance Functor EnumDefM where
+  fmap f x = pure f <*> x
+instance Applicative EnumDefM where
+  pure x = EnumDefM
+    { edDesc   = ""
+    , edValues = Trie.empty
+    , unwrap   = x
     }
-
-instance Functor     EnumDefM where fmap  = fmapDef
-instance Applicative EnumDefM where (<*>) = applyDef ; pure _ = unit
-instance Monad       EnumDefM where (>>=) = bindDef  ; (>>)   = seqDef
+  f <*> x = EnumDefM
+    { edDesc   = edDesc   f <> edDesc   x
+    , edValues = edValues f <> edValues x
+    , unwrap   = unwrap   f $  unwrap   x
+    }
+instance Monad EnumDefM where
+  m >>= k = m >> k (unwrap m)
+  m >> k = m { unwrap = id } <*> k
 
 instance Describable EnumDefM where
   describe d = unit { edDesc = d }
@@ -56,18 +63,25 @@ instance Describable EnumDefM where
 data EnumValueDefM a = EnumValueDefM
   { evdDesc :: Description
   , evdDepr :: Description
+  , unwrapV :: a
   }
 
-instance DefinitionBuilder EnumValueDefM where
-  unit = EnumValueDefM { evdDesc = "", evdDepr = "" }
-  merge x y = EnumValueDefM
-    { evdDesc = evdDesc x <> evdDesc y
-    , evdDepr = evdDepr x <> evdDepr y
+instance Functor EnumValueDefM where
+  fmap f x = pure f <*> x
+instance Applicative EnumValueDefM where
+  pure x = EnumValueDefM
+    { evdDesc = ""
+    , evdDepr = ""
+    , unwrapV = x
     }
-
-instance Functor     EnumValueDefM where fmap  = fmapDef
-instance Applicative EnumValueDefM where (<*>) = applyDef ; pure _ = unit
-instance Monad       EnumValueDefM where (>>=) = bindDef  ; (>>)   = seqDef
+  f <*> x = EnumValueDefM
+    { evdDesc = evdDesc f <> evdDesc x
+    , evdDepr = evdDepr f <> evdDepr x
+    , unwrapV = unwrapV f $  unwrapV x
+    }
+instance Monad EnumValueDefM where
+  m >>= k = m >> k (unwrapV m)
+  m >> k  = m { unwrapV = id } <*> k
 
 instance Describable EnumValueDefM
   where describe d = unit { evdDesc = d }

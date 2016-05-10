@@ -13,6 +13,7 @@ import           Control.Concurrent.Async (async, wait)
 import           Control.Lens
 import           Control.Monad (unless)
 import           Control.Monad.IO.Class
+import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.AWS
 import           Data.Hashable
 import           Data.HashMap.Strict (HashMap, (!))
@@ -56,26 +57,24 @@ instance GraphQLType OBJECT Haxl User where
 
     describe "A user, stored in dynamodb"
 
-    field "id"         $ resolve $~> userId
-    field "name"       $ resolve $~> name
-    field "role"       $ resolve $~> userRole
-    field "mediaKey"   $ resolve $~> mediaKey
-    field "bio"        $ resolve $~> bio
-    field "twitter"    $ resolve $~> twitter
-    field "facebook"   $ resolve $~> facebook
-    field "googlePlus" $ resolve $~> googlePlus
-    field "url"        $ resolve $~> url
+    field "id"         $ resolve $-> userId
+    field "name"       $ resolve $-> name
+    field "role"       $ resolve $-> userRole
+    field "mediaKey"   $ resolve $-> mediaKey
+    field "bio"        $ resolve $-> bio
+    field "twitter"    $ resolve $-> twitter
+    field "facebook"   $ resolve $-> facebook
+    field "googlePlus" $ resolve $-> googlePlus
+    field "url"        $ resolve $-> url
 
     field "posts" $ do
       describe "all posts published by this author"
       limit  <- arg "limit"  |= 30
       offset <- arg "offset" |= 0
-      resolve $->> \args v ->
-        let uid = fromIntegral . unwrapId . userId $ v :: Double
-            lim = limit  args
-            ofs = offset args
-         in Post.range Post.AUTHOR_ID uid uid lim ofs
-            >>= traverse Post.get
+      resolve $->> \v -> do
+        let uid = fromIntegral . unwrapId $ userId v :: Double
+        ids <- Post.range Post.AUTHOR_ID uid uid limit offset
+        traverse Post.get ids
 
 -- | Root query mixin
 
@@ -87,7 +86,7 @@ mixin = do
   field "user" $ do
     describe "Retrieves a single user by id"
     userId <- arg "id"
-    resolve *->> get . userId
+    lift $ get userId
 
 -- | User ID Scalar
 

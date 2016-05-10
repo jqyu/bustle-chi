@@ -28,17 +28,17 @@ instance GraphQLType OBJECT Haxl RootQueryType where
     field "scalarTest" $ do
       describe "some silly test or another"
       x <- arg "id" |= ""
-      resolve *-> Id . x
+      return $ Id x
 
     field "nodes" $ do
       describe "an array of interface nodes"
-      resolve *~> nodes
+      return nodes
 
     field "unionNodes" $ do
       describe "either or"
-      resolve *~> unionNodes
+      return unionNodes
 
-    field "intOrBoolNodes" $ resolve *~> unionNodes'
+    field "intOrBoolNodes" $ return unionNodes'
 
     Post.mixin -- implements the root post fields
     User.mixin -- implements the root user fields
@@ -46,20 +46,20 @@ instance GraphQLType OBJECT Haxl RootQueryType where
     -- stubs
     field "bustle" $ do
       describe ""
-      resolve *~> BustleAPI
+      return BustleAPI
 
     field "max" $ do
       describe ""
-      resolve *~> (2 :: Int)
+      return (2 :: Int)
 
     field "api" $ do
       deprecate "use the `max` field"
       describe "Mappings to the original api.bustle.com Grape app"
-      resolve *~> (3 :: Int)
+      return (3 :: Int)
 
     field "echo" $ do
       s <- arg "echoString" :: Arg Haxl RootQueryType B.ByteString
-      resolve *-> s
+      return s
 
 schema :: Schema Haxl
 schema = defineSchema RootQueryType

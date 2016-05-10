@@ -23,12 +23,13 @@ import Rad.QL.Query
 import Rad.QL.Types
 
 defineObject :: (Monad m) => Name -> ObjectDefM m a b -> GraphQLTypeDef OBJECT m a
-defineObject n def = emptyDef
+defineObject n odef = emptyDef
     { gqlTypeDef = TypeDefObject td
     , gqlResolve = res
     , gqlFields  = odFields def
     }
-  where td  = ObjectTypeDef n (odDesc def) (odInterfaces def) fds
+  where def = odef >> pure ()
+        td  = ObjectTypeDef n (odDesc def) (odInterfaces def) fds
         fds = [ fieldDef f | f <- odFields def ]
         frs = Trie.fromList
                 [ (fieldResolverName f, fieldResolver f)
@@ -92,26 +93,32 @@ data ObjectDefM m a b = ObjectDefM
   { odDesc       :: Description
   , odFields     :: [GraphQLFieldDef m a]
   , odInterfaces :: Interfaces
+  , unwrap       :: b
   }
 
-instance DefinitionBuilder (ObjectDefM m a) where
-  unit = ObjectDefM
+instance Functor (ObjectDefM m a) where
+  fmap f x = pure f <*> x
+
+instance Applicative (ObjectDefM m a) where
+  pure x = ObjectDefM
     { odDesc       = ""
     , odFields     = []
     , odInterfaces = []
+    , unwrap       = x
     }
-  merge x y = ObjectDefM
-    { odDesc       = odDesc       x <> odDesc       y
-    , odFields     = odFields     y <> odFields     x -- reversed for shadowing
-    , odInterfaces = odInterfaces x <> odInterfaces y
+  f <*> x = ObjectDefM
+    { odDesc       = odDesc       f <> odDesc       x
+    , odFields     = odFields     x <> odFields     f
+    , odInterfaces = odInterfaces f <> odInterfaces x
+    , unwrap       = unwrap       f $  unwrap       x
     }
 
-instance Functor     (ObjectDefM m a) where fmap  = fmapDef
-instance Applicative (ObjectDefM m a) where (<*>) = applyDef ; pure _ = unit
-instance Monad       (ObjectDefM m a) where (>>=) = bindDef  ; (>>)   = seqDef
+instance Monad (ObjectDefM m a) where
+  m >>= k = m >> k (unwrap m)
+  m >> k = m { unwrap = id } <*> k
 
 instance Describable (ObjectDefM m a) where
   describe d = unit { odDesc = d }
 
-instance HasFields ObjectDefM m a b where
+instance HasFields ObjectDefM m a where
   fieldSingleton f = unit { odFields = [f] }

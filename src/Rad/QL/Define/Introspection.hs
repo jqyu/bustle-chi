@@ -30,13 +30,12 @@ introspection schema = let dict = typeDict schema in do
 
   field "__schema" $ do
     describe "Schema introspection object"
-    resolve *~> schema
+    return schema
 
   field "__type" $ do
     describe "Retrieves a type definition by name"
     name <- arg "name"
-    resolve *-> \args ->
-      freeType__ dict <$> Trie.lookup (name args) dict
+    return $ freeType__ dict <$> Trie.lookup name dict
 
 -- | __Schema
 
@@ -49,28 +48,28 @@ instance (Monad m) => GraphQLType R.OBJECT m (Schema m) where
 
     field "types" $ do
       describe "A list of all types supported by the current schema"
-      resolve $~> \schema ->
-        let dict = typeDict schema in
-          [ freeType__ dict t
-          | t <- Trie.elems dict
-          , B.take 2 (typeDefName t) /= "__"
-          ]
+      schema <- self
+      let dict = typeDict schema
+      return [ freeType__ dict t
+             | t <- Trie.elems dict
+             , B.take 2 (typeDefName t) /= "__"
+             ]
 
     field "queryType" $ do
       describe "reference to the root query type"
-      resolve $~> \schema ->
-        freeType__ (typeDict schema) (rootQueryType schema)
+      schema <- self
+      return $ freeType__ (typeDict schema) (rootQueryType schema)
 
     field "mutationType" $ do
       describe "reference to the root mutation type"
-      resolve *~> (Nothing :: Maybe Type__)
+      return (Nothing :: Maybe Type__)
 
     field "directives" $ do
       describe "directives supported by the executor"
-      resolve $~> \schema ->
-        [ includeDirective $ typeDict schema
-        , skipDirective    $ typeDict schema
-        ]
+      schema <- self
+      return [ includeDirective $ typeDict schema
+             , skipDirective    $ typeDict schema
+             ]
 
 -- | __Type
 
@@ -91,7 +90,7 @@ instance (Monad m) => GraphQLType R.OBJECT m Type__ where
     describe "A type introspection object"
 
     -- kind: __TypeKind!
-    field "kind" $ resolve $~> \case
+    field "kind" $ resolve $-> \case
       Type__   (TypeList    _)     _  _ -> LIST
       Type__   (TypeNonNull _)     _  _ -> NON_NULL
       Type__ _ (TypeDefObject      _) _ -> OBJECT
@@ -102,31 +101,30 @@ instance (Monad m) => GraphQLType R.OBJECT m Type__ where
       Type__ _ (TypeDefInputObject _) _ -> INPUT_OBJECT
 
     -- name: String!
-    field "name"        $ resolve $~> typeDefName . type__Def
+    field "name"        $ resolve $-> typeDefName . type__Def
 
     -- description: String!
-    field "description" $ resolve $~> typeDefDesc . type__Def
+    field "description" $ resolve $-> typeDefDesc . type__Def
 
     -- fields(includeDeprecated: Boolean = false): [__Field!]
     field "fields" $ do
       describe "OBJECT and INTERFACE only"
-      inclDepr <- arg "includeDeprecated" |= False @>
-        describe
-        $.. "Flag that determines whether or not to include deprecated fields."
-        |.. "Defaults to false."
-      resolve $-> \args v -> case v of
+      inclDepr <- arg "includeDeprecated" |= False
+          @>  "Flag that determines whether or not to include deprecated fields."
+          |.. "Defaults to false."
+      resolve $-> \case
         Type__ _ (TypeDefObject (ObjectTypeDef _ _ _ fs)) dict
-          | inclDepr args -> Just [Field__ f dict | f <- fs]
-          | otherwise     -> Just [Field__ f dict | f@(FieldDef _ _ _ _ _ "") <- fs]
+          | inclDepr  -> Just [Field__ f dict | f <- fs]
+          | otherwise -> Just [Field__ f dict | f@(FieldDef _ _ _ _ _ "") <- fs]
         Type__ _ (TypeDefInterface (InterfaceTypeDef _ _ fs)) dict
-          | inclDepr args -> Just [Field__ f dict | f <- fs]
-          | otherwise     -> Just [Field__ f dict | f@(FieldDef _ _ _ _ _ "") <- fs]
-        _                 -> Nothing
+          | inclDepr  -> Just [Field__ f dict | f <- fs]
+          | otherwise -> Just [Field__ f dict | f@(FieldDef _ _ _ _ _ "") <- fs]
+        _             -> Nothing
 
     -- interfaces: [__Type!]
     field "interfaces" $ do
       describe "OBJECT only"
-      resolve $~> \case
+      resolve $-> \case
         Type__ _ (TypeDefObject (ObjectTypeDef _ _ ifs _)) dict ->
           Just [freeType__ dict (TypeDefInterface i) | i <- ifs]
         _ -> Nothing
@@ -134,7 +132,7 @@ instance (Monad m) => GraphQLType R.OBJECT m Type__ where
     -- possibleTypes: [__Type!]
     field "possibleTypes" $ do
       describe "INTERFACE and UNION only"
-      resolve $~> \case
+      resolve $-> \case
         Type__ _ (TypeDefInterface i@(InterfaceTypeDef n _ _)) dict ->
           Just [ freeType__ dict (TypeDefObject o)
                | TypeDefObject o@(ObjectTypeDef _ _ ifs _) <- Trie.elems dict
@@ -147,20 +145,19 @@ instance (Monad m) => GraphQLType R.OBJECT m Type__ where
     -- enumValues(includeDeprecated: Boolean = false): [__EnumValue!]
     field "enumValues" $ do
       describe "ENUM only"
-      inclDepr <- arg "includeDeprecated" |= False @>
-        describe
-        $.. "Flag that determines whether or not to include deprecated enum values"
-        |.. "Defaults to false."
-      resolve $-> \args v -> case v of
+      inclDepr <- arg "includeDeprecated" |= False
+          @>  "Flag that determines whether or not to include deprecated enum values"
+          |.. "Defaults to false."
+      resolve $-> \case
         Type__ _ (TypeDefEnum (EnumTypeDef _ _ vals)) _ 
-          | inclDepr args -> Just [EnumValue__ val | val <- vals]
-          | otherwise     -> Just [EnumValue__ val | val@(EnumValueDef _ _ "") <- vals]
+          | inclDepr  -> Just [EnumValue__ val | val <- vals]
+          | otherwise -> Just [EnumValue__ val | val@(EnumValueDef _ _ "") <- vals]
         _ -> Nothing
 
     -- inputFields: [__InputValue!]
     field "inputFields" $ do
       describe "INPUT_OBJECT only"
-      resolve $~> \case
+      resolve $-> \case
         Type__ _ (TypeDefInputObject (InputObjectTypeDef _ _ vals)) dict ->
           Just [InputValue__ val dict | val <- vals]
         _ -> Nothing
@@ -168,7 +165,7 @@ instance (Monad m) => GraphQLType R.OBJECT m Type__ where
     -- ofType: __Type
     field "ofType" $ do
       describe "NON_NULL and LIST only"
-      resolve $~> \case
+      resolve $-> \case
         Type__ (TypeList    (ListType         t)) tdef dict -> Just $ Type__ t             tdef dict
         Type__ (TypeNonNull (NonNullTypeList  l)) tdef dict -> Just $ Type__ (TypeList  l) tdef dict
         Type__ (TypeNonNull (NonNullTypeNamed n)) tdef dict -> Just $ Type__ (TypeNamed n) tdef dict
@@ -187,28 +184,28 @@ instance (Monad m) => GraphQLType R.OBJECT m Field__ where
     describe "A field introspection object"
     
     -- name: String!
-    field "name" $ resolve $~>
+    field "name" $ resolve $->
       \(Field__ (FieldDef n _ _ _ _ _) _) -> n
 
     -- description: String
-    field "description" $ resolve $~>
+    field "description" $ resolve $->
       \(Field__ (FieldDef _ d _ _ _ _) _) -> descMaybe d
 
     -- args: [__InputValue!]!
-    field "args" $ resolve $~>
+    field "args" $ resolve $->
       \(Field__ (FieldDef _ _ args _ _ _) dict) ->
         [ InputValue__ a dict | a <- args ]
 
     -- type: __Type!
-    field "type" $ resolve $~>
+    field "type" $ resolve $->
       \(Field__ (FieldDef _ _ _ t td _) dict) -> Type__ t td dict
 
     -- isDeprecated: Boolean!
-    field "isDeprecated" $ resolve $~>
+    field "isDeprecated" $ resolve $->
       \(Field__ (FieldDef _ _ _ _ _ d) _) -> d /= ""
 
     -- deprecationReason: String
-    field "deprecationReason" $ resolve $~>
+    field "deprecationReason" $ resolve $->
       \(Field__ (FieldDef _ _ _ _ _ d) _) -> descMaybe d
 
 -- | __InputValue
@@ -224,19 +221,19 @@ instance (Monad m) => GraphQLType R.OBJECT m InputValue__ where
     describe "An input value introspection object"
 
     -- name: String!
-    field "name" $ resolve $~>
+    field "name" $ resolve $->
       \(InputValue__ (InputValueDef n _ _ _ _) _) -> n
 
     -- description: String
-    field "description" $ resolve $~>
+    field "description" $ resolve $->
       \(InputValue__ (InputValueDef _ d _ _ _) _) -> descMaybe d
 
     -- type: __Type!
-    field "type" $ resolve $~>
+    field "type" $ resolve $->
       \(InputValue__ (InputValueDef _ _ t td _) dict) -> Type__ t td dict
 
     -- defaultValue: String
-    field "defaultValue" $ resolve $~>
+    field "defaultValue" $ resolve $->
       \(InputValue__ (InputValueDef _ _ _ _ d) _) ->
         case toLazyByteString <$> d >>= L.uncons of
              Just (0x22, _) -> d
@@ -256,19 +253,19 @@ instance (Monad m) => GraphQLType R.OBJECT m EnumValue__ where
     describe "Introspection object for possible type of an ENUM"
 
     -- name: String!
-    field "name" $ resolve $~>
+    field "name" $ resolve $->
       \(EnumValue__ (EnumValueDef n _ _)) -> n
 
     -- description: String
-    field "description" $ resolve $~>
+    field "description" $ resolve $->
       \(EnumValue__ (EnumValueDef _ d _)) -> descMaybe d
 
     -- isDeprecated: Boolean!
-    field "isDeprecated" $ resolve $~>
+    field "isDeprecated" $ resolve $->
       \(EnumValue__ (EnumValueDef _ _ d)) -> d /= ""
 
     -- deprecationReason: String
-    field "deprecationReason" $ resolve $~>
+    field "deprecationReason" $ resolve $->
       \(EnumValue__ (EnumValueDef _ _ d)) -> descMaybe d
 
 -- | __TypeKind
@@ -307,19 +304,23 @@ instance (Monad m) => GraphQLType R.OBJECT m Directive__ where
 
     describe "A directive provides a way to describe.."
 
-    field "name"        $ resolve $~> directive__Name
-    field "description" $ resolve $~> descMaybe . directive__Description
-    field "locations"   $ resolve $~> directive__Locations
-    field "args"        $ resolve $~> \v->
-      [ InputValue__ val (directive__dict v) | val <- directive__Args v ]
+    field "name"        $ resolve $-> directive__Name
+    field "description" $ resolve $-> descMaybe . directive__Description
+    field "locations"   $ resolve $-> directive__Locations
+
+    field "args"
+      $ resolve $-> \v->
+        [ InputValue__ val (directive__dict v)
+        | val <- directive__Args v
+        ]
     field "onOperation"
-      $ resolve $~> elems [ QUERY, MUTATION ]
+      $ resolve $-> elems [ QUERY, MUTATION ]
                   . directive__Locations
     field "onFragment"
-      $ resolve $~> elems [ FRAGMENT_SPREAD, INLINE_FRAGMENT ]
+      $ resolve $-> elems [ FRAGMENT_SPREAD, INLINE_FRAGMENT ]
                   . directive__Locations
     field "onField"
-      $ resolve $~> elem FIELD
+      $ resolve $-> elem FIELD
                   . directive__Locations
 
 includeDirective :: TypeDict -> Directive__

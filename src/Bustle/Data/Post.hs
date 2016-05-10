@@ -3,6 +3,7 @@ module Bustle.Data.Post where
 import           Control.Concurrent.Async
 import           Control.Exception
 import           Control.Monad.IO.Class (liftIO)
+import           Control.Monad.Trans.Class (lift)
 import qualified Data.Aeson            as JSON
 import qualified Data.ByteString       as B
 import           Data.ByteString.Builder
@@ -56,26 +57,28 @@ instance GraphQLType OBJECT Haxl Post where
 
     describe "A typeset post"
 
-    field "id"          $ resolve $~> postId
-    field "title"       $ resolve $~> title
-    field "slug"        $ resolve $~> slug
-    field "type"        $ resolve $~> postType
-    field "state"       $ resolve $~> state
-    field "rating"      $ resolve $~> rating
-    field "publishedAt" $ resolve $~> publishedAt
-    field "publication" $ resolve $~> publication
+    field "id"          $ resolve $-> postId
+    field "title"       $ resolve $-> title
+    field "slug"        $ resolve $-> slug
+    field "type"        $ resolve $-> postType
+    field "state"       $ resolve $-> state
+    field "rating"      $ resolve $-> rating
+    field "publishedAt" $ resolve $-> publishedAt
+    field "publication" $ resolve $-> publication
 
     field "bodies" $ do
       describe "An list of mobiledoc payloads"
-      resolve $~> bodies
+      resolve $-> bodies
 
     field "primaryMedia" $ do
       describe "A direct object dump of the primary media"
-      resolve $~> primaryMedia
+      resolve $-> primaryMedia
+
+    field "authorId" $ resolve $-> authorId
 
     field "author" $ do
       describe "The user who made the post"
-      resolve $~>> User.get . User.Id . authorId
+      resolve $->> User.get . User.Id . authorId
 
 -- | Root query mixin
 
@@ -87,18 +90,17 @@ mixin = do
   field "post" $ do
     describe "Retrieves a single post by id"
     postId <- arg "id"
-    resolve *->> get . postId
+    lift $ get postId
 
   field "posts" $ do
     describe "Retrieves the latest posts"
-    idx    <- arg "index"  |= PUBLISHED_AT @>
-      describe
-        $.. "determines which index to query, defaults to PUBLISHED_AT"
+    idx    <- arg "index"  |= PUBLISHED_AT
+        @>  "determines which index to query, defaults to PUBLISHED_AT"
         |.. "TODO: restrict other indices for authenticated users only"
     limit  <- arg "limit"  |= 30
     offset <- arg "offset" |= 0
-    resolve *->> \args -> do
-      ids <- index (idx args) (limit args) (offset args)
+    lift $ do
+      ids <- index idx limit offset
       traverse get ids
 
   field "postsBy" $ do
@@ -106,9 +108,9 @@ mixin = do
     authorId <- arg "authorId"
     limit    <- arg "limit"  |= 30
     offset   <- arg "offset" |= 0
-    resolve *->> \args -> do
-      let uid = fromIntegral (authorId args :: Int) :: Double
-      ids <- range AUTHOR_ID uid uid (limit args) (offset args)
+    let uid = fromIntegral (authorId :: Int) :: Double
+    lift $ do
+      ids <- range AUTHOR_ID uid uid limit offset
       traverse get ids
 
 -- | Utility Scalars
@@ -219,50 +221,31 @@ resolveCont :: RCont -> IO ()
 resolveCont (RCont rvar (Left ex)) = putFailure rvar (replyToException ex)
 resolveCont (RCont rvar (Right a)) = putSuccess rvar a
 
-rcont :: ResultVar a -> (b -> a) -> Either Reply b -> RCont
-rcont rvar f x = RCont rvar (f <$> x)
+rcont :: (b -> a) -> ResultVar a -> Redis (Either Reply b) -> Redis RCont
+rcont f rvar = fmap $ RCont rvar . fmap f
 
 fetchReq :: B.ByteString -> BlockedFetch PostReq -> Redis RCont
 fetchReq kp (BlockedFetch (GetPost (Id i)) rvar) =
-    rcont rvar parsePost
-      <$> hmget (kp <> i <> ":attributes")
-                [ "id"           , "title"         , "slug"
-                , "bodies"       , "primary_media" , "type"
-                , "state"        , "rating"        , "author_id"
-                , "published_at" , "publication"
-                ]
-  -- do they give awards for obfuscated haskell?
-  where parsePost [ postId       , title          , slug
-                  , bodies       , primaryMedia   , postType
-                  , state        , rating         , authorId
-                  , publishedAt  , publication
-                  ]
-          = Post <$> (Id            <$> postId)
-                 <*> title
-                 <*> slug
-                 <*> (RawJSON       <$> bodies)
-                 <*> (RawJSON       <$> primaryMedia)
-                 <*> (postType      >>= toInt)
-                 <*> (toInt         <$> state)
-                 <*> (toInt         <$> rating)
-                 <*> (authorId      >>= toInt)
-                 <*> (toInt         <$> publishedAt)
-                 <*> (publication   >>= toInt)
-        parsePost _ = Nothing
-
+    rcont parsePost rvar
+      $ hmget (kp <> i <> ":attributes")
+              [ "id"           , "title"         , "slug"
+              , "bodies"       , "primary_media" , "type"
+              , "state"        , "rating"        , "author_id"
+              , "published_at" , "publication"
+              ]
 fetchReq kp (BlockedFetch (GetIndex idx limit offset) rvar) =
-    rcont rvar (map Id)
-      <$> zrevrange (kp <> "indexes:" <> indexKey idx) start stop
+    rcont (map Id) rvar
+      $ zrevrange (kp <> "indexes:" <> indexKey idx) start stop
   where start = toInteger offset
         stop  = toInteger (offset + limit - 1)
 fetchReq kp (BlockedFetch (GetRange idx zmin zmax limit offset) rvar) =
-    rcont rvar (map Id)
-      <$> zrevrangebyscoreLimit
-            (kp <> "indexes:" <> indexKey idx)
-            zmax
-            zmin
-            offset'
-            limit'
+    rcont (map Id) rvar
+      $ zrevrangebyscoreLimit
+          (kp <> "indexes:" <> indexKey idx)
+          zmax
+          zmin
+          offset'
+          limit'
   where offset' = toInteger offset
         limit'  = toInteger limit
 
@@ -280,3 +263,24 @@ toInt :: B.ByteString -> Maybe Int
 toInt n = case BC8.readInt n of
                Just (n', _) -> Just n'
                Nothing      -> Nothing
+
+-- do they give awards for obfuscated haskell?
+parsePost :: [Maybe B.ByteString] -> Maybe Post
+parsePost [ postId       , title          , slug
+          , bodies       , primaryMedia   , postType
+          , state        , rating         , authorId
+          , publishedAt  , publication
+          ]
+  = Post <$> (Id            <$> postId)
+         <*> title
+         <*> slug
+         <*> (RawJSON       <$> bodies)
+         <*> (RawJSON       <$> primaryMedia)
+         <*> (postType      >>= toInt)
+         <*> (toInt         <$> state)
+         <*> (toInt         <$> rating)
+         <*> (authorId      >>= toInt)
+         <*> (toInt         <$> publishedAt)
+         <*> (publication   >>= toInt)
+parsePost _ = Nothing
+
