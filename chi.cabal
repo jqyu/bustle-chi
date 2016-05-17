@@ -16,14 +16,21 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Bustle.Env
+
                      , Bustle.Data.Post
                      , Bustle.Data.User
+
+                     , Bustle.DataSource.Graph
+
                      , Bustle.QL
                      , Bustle.QL.API.Bustle
                      , Bustle.QL.Interfaces
                      , Bustle.QL.Scalars
                      , Bustle.QL.Schema
+
                      , Bustle.Secret
+
+                     , Rad.Graph.Structure
 
                      , Rad.QL
                      , Rad.QL.AST

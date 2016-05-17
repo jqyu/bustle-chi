@@ -48,8 +48,8 @@ data LIST_OF
 data NULLABLE
 
 -- | GraphQLType
-
 -- A GraphQLType says that a type can be resolved against a given monad
+
 class (Monad m) => GraphQLType kind m a | a -> kind where
   def :: GraphQLTypeDef kind m a
 

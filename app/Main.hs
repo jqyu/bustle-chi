@@ -36,7 +36,7 @@ app state = do
   -- GraphiQL
   S.get "/" $ do
     S.setHeader "Content-Type" "text/html"
-    S.file "static/index.html"
+    S.file "static/graphiql.html"
 
   -- GraphQL Response
   S.post "/" $ do
