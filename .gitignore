@@ -9,9 +9,5 @@ cabal.sandbox.config
 *.swp
 *.keter
 
-# front-end
-static/dist/*
-static/node_modules*
-
 # secrets
 src/Bustle/Secret.hs

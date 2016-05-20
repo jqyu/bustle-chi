@@ -1,0 +1,36 @@
+.logo {
+  font-family: serif;
+  font-weight: normal;
+  font-style: italic;
+  color: #999;
+  text-align: center;
+  line-height: 48px;
+  font-size: 48px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.link {
+  display: block;
+  max-width: 400px;
+  margin: auto;
+  text-decoration: none;
+  color: #999;
+  text-align: center;
+  padding: 48px 24px;
+  border-top: 1px solid #CCC;
+}
+
+.link h2 {
+  margin-bottom: 24px;
+}
+.link p {
+  font-family: 'Anonymous Pro', monospace;
+  font-style: italic;
+  font-size: 14px;
+  line-height: 24px;
+}
+
+.link:hover {
+  color: #41E7D0;
+}

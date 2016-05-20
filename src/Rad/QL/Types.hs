@@ -193,7 +193,8 @@ graphQLValueResolve' = gqlResolve (def :: GraphQLTypeDef kind m a)
 
 instance (GraphQLValue m a) => GraphQLValue m [a] where
   graphQLValueTypeDef _ = graphQLValueTypeDef (undefined :: m a)
-  graphQLValueTypeRef _ = TypeList
+  graphQLValueTypeRef _ = TypeNonNull
+                        $ NonNullTypeList
                         $ ListType
                         $ graphQLValueTypeRef (undefined :: m a)
   graphQLValueResolve s = collectResults

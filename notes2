@@ -1,0 +1,139 @@
+data Attrs = Attrs
+  { title       :: ByteString
+  , description :: Maybe ByteString
+  , publishedAt :: Maybe Int
+  }
+
+-- Rad.Graph definitions
+vertex :: VertexDef Attrs
+vertex = defineVertex "Post" $
+  describe "A typeset post, the way it should be tho"
+
+authored :: EdgeDef (Vertex User.Attrs) (Vertex Attrs) EmptyAttrs
+authored = defineEdge "Authored" $ do
+  describe    "User-Authored->Post"
+  cardinality ONE2MANY
+  weight      BY_TIME
+
+hasMobileDoc :: EdgeDef (Vertex Attrs) (Vertex MobileDoc.Attrs) EmptyAttrs
+hasMobileDoc = defineEdge "HasMobileDoc" $ do
+  describe    "This is the description"
+  cardinality ONE2MANY
+  weight      STRICT_ORDERING
+
+-- Rad.QL definitions
+def :: GraphQLObjectDef Haxl (Vertex Attrs)
+def = defineObject "Post" $ do
+
+  describe "Monad description"
+
+  implements Node
+  implements Vertex
+
+  -- TEST ASSERTIONS
+
+  test $ \v ->
+    assert (id v > 0) "Post must have a positive integer"
+
+  -- RUNTIME VERIFICATIONS
+
+  before $ \v -> do
+    me <- assertExists session "Must be logged in to see a post"
+    assert (isAdmin me || me == authorId v)
+      "User must have permission to view this post"
+
+  before $ \v -> do
+    s <- session
+    assert (just s || just (publishedAt v)) "Post must be published!"
+
+  -- FIELDS
+
+  field string "title" $ do
+    describe "Please add descriptions to everything, it's just like... good"
+    resolve $-> title
+
+  field (nullable string) "description" $ do
+    describe "seriously just add descriptions..."
+    resolve $-> description
+
+  field (listOf MobileDoc.def) "bodies" $ do
+    describe "array of mobiledoc payloads"
+    v <- self
+    lift $ G.v v
+      ~> V.outV hasMobileDoc
+      ~> V.asVertexList MobileDoc.def
+
+  field User.def "author" $ do
+    describe "the person who wrote the damn post"
+    v <- self
+    liftMaybe "Could not find author" $ G.v v
+      ~> V.inV authored
+      ~> V.asVertex User.def
+
+  -- MUTATIONS
+  -- these get automatically mounted during schema creation
+
+  mutation (nodePayload def) "createPost" $ do
+    describe "Create a post from nothing"
+    -- gather attributes
+    t  <- arg string "title" empty
+    d  <- arg (nullable string) "description" empty
+    bs <- arg (listOf vertexId) "bodies" |= []
+    -- validate arguments/context
+    requires $ nonEmptyString t
+    requires $ authenticated WRITER
+    Authed me <- session
+    let attrs = emptyAttrs { title = t, description = d }
+    -- create vertex
+    v <- liftMaybe "Failure creating post" $ G.addV attrs
+    -- associate bodies to post
+    "Failure associating mobiledoc bodies to post" |?>
+      forEachM bs $ \bid idx -> do
+        body <- G.vertex bid
+        G.v v ~> V.addEdge hasMobileDoc body empty (Weight idx)
+    -- associate post to user
+    "Failure associating post to a user" |?>
+      G.v me ~> V.addEdge authored v empty Auto
+    -- return payload
+    returnNode v
+
+  mutation (nodePayload def) "publishPost" $ do
+    describe "given a post, create the published association"
+    v <- V.fromId vertex
+    now <- Utils.time
+    "Failure creating published association" |?>
+      G.key "published" ~> V.addEdge publishedPost v empty (Weight now)
+    returnNode v
+
+  mutation (nodePayload def) "unpublishPost" $ do
+    describe "given a post, remove the published association"
+    v <- V.fromId vertex
+    e <- "Post was not published!" |?>
+      G.v v ~> V.inE publishedPost
+            ~> E.asEdge someEdge
+    _ <- "Failure deleting edge" |?> G.deleteEdge e
+    returnNode v
+
+query :: GraphQLObjectFragment Haxl
+query = do
+
+  describe "- Implements Post queries"
+
+  field (nullable def) "post" $ do
+    describe "retrieves an id by id"
+    pid <- arg vertexId "id" empty
+    lift $ G.vertex pid
+      ~> V.asVertex vertex
+
+  field (listOf (nullable def)) "posts" $ do
+    describe "retrieves a list of lists by a list of ids"
+    pids <- arg (listOf vertexId) "ids" empty
+    lift $ G.vertices pids
+      ~> V.asVertices vertex
+
+  field (connection (edge def)) "postConnection" $ do
+    pageInfo <- connectionArgs
+    lift $ G.key "published"
+      ~> V.out publishedPost
+      ~> G.paginate pageInfo
+      ~> A.asConnection (connection (edge def))

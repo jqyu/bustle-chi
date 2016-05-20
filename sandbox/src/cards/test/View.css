@@ -1,0 +1,15 @@
+.test {
+  background-color: #fff;
+}
+
+.test[min-width~="400px"] {
+  background-color: #FF0;
+}
+
+.test[min-width~="600px"] {
+  background-color: #F00;
+}
+
+.test[min-width~="800px"] {
+  background-color: #000;
+}

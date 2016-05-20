@@ -1,0 +1,85 @@
+interface Node {
+  id: ID!
+}
+
+interface Edge {
+  cursor: ID!
+  node: Node!
+}
+
+interface Connection {
+  edges: [Edge!]!
+  pageInfo: PageInfo!
+}
+
+type PageInfo {
+
+}
+
+type RootQuery {
+  node(id: ID!): Node
+}
+
+type RootMutation {
+  # NODE MUTATIONS
+  createNode(
+    payload: Object!
+  ): CreateNodePayload
+  updateNode(
+    id: ID!,
+    payload: Object!
+  ): UpdateNodePayload
+  deleteNode(id: ID!): DeleteNodePayload
+
+  # EDGE MUTATIONS
+  createEdge(
+    from: ID!,
+    to: ID!,
+    payload: Object!
+  ): CreateEdgePayload
+  udpateEdge(
+    cursor: ID!,
+    payload: Object!
+  ): UpdateEdgePayload
+  deleteEdge(
+    cursor: ID!
+  ): DeleteEdgePayload
+}
+
+type Vertex implements Node {
+  id: ID!
+  foo: String!
+  bar: String
+  vertexConnection(
+    after: ID,
+    first: Int = 10
+  ): Connection!
+}
+
+instance GraphQLType OBJECT Haxl TextTree where
+
+  def = defineObject "TextTreeCard" $ do
+
+    field "title" $ resolve $-> title
+
+    field "author" $ do
+      v <- self
+      G.v v ~> V.inV MadeCard
+            ~> V.asVertex userVertex
+
+    field "children" $ do
+      v <- self
+      G.v v ~> V.out Has
+            ~> A.asConnection textConnection
+
+    mutation "update" $ do
+      v <- mSelf
+      t <- arg "title"
+      childIds <- arg "children"
+      let attrs = TextTreeAttrs { title = t ? title v }
+      v' <- G.v v ~> V.setAttrs
+                  ~> G.mutate
+      for childIds $ \childId ->
+        G.v v' ~> V.addE OUT Has childId NoAttrs
+               ~> G.mutate
+      return $ UpdatePayload { node = v' }
